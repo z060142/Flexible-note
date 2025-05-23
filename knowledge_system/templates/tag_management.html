@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}標籤管理 - 知識管理系統{% endblock %}
+
+{% block extra_css %}
+<style>
+    .color-preview {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 1px solid #ccc;
+        vertical-align: middle;
+        margin-right: 5px;
+    }
+    .table th, .table td {
+        vertical-align: middle;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="fas fa-tags"></i> 標籤管理</h1>
+        <!-- Optional: Add New Tag button if functionality is desired directly here -->
+        <!-- <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editTagModal" onclick="prepareNewTagModal()">
+            <i class="fas fa-plus"></i> 新增標籤
+        </button> -->
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>名稱</th>
+                            <th>分類</th>
+                            <th>顏色</th>
+                            <th>描述</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tagTableBody">
+                        {% for tag in tags %}
+                        <tr id="tag-row-{{ tag.id }}">
+                            <td class="tag-name">{{ tag.name }}</td>
+                            <td class="tag-category">{{ tag.category }}</td>
+                            <td>
+                                <span class="color-preview" style="background-color: {{ tag.color if tag.color else '#808080' }};"></span>
+                                <span class="tag-color-value">{{ tag.color if tag.color else '#808080' }}</span>
+                            </td>
+                            <td class="tag-description">{{ tag.description if tag.description else '' }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary me-1" 
+                                        onclick="openEditModal({{ tag.id }}, '{{ tag.name }}', '{{ tag.category }}', '{{ tag.color if tag.color else '#808080' }}', '{{ tag.description if tag.description else '' | e }}')">
+                                    <i class="fas fa-edit"></i> 編輯
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteTag({{ tag.id }})">
+                                    <i class="fas fa-trash"></i> 刪除
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center">尚無標籤。</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Tag Modal -->
+<div class="modal fade" id="editTagModal" tabindex="-1" aria-labelledby="editTagModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editTagModalLabel">編輯標籤</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editTagForm">
+                    <input type="hidden" id="editTagId">
+                    <div class="mb-3">
+                        <label for="editTagName" class="form-label">名稱</label>
+                        <input type="text" class="form-control" id="editTagName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTagCategory" class="form-label">分類</label>
+                        <input type="text" class="form-control" id="editTagCategory">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTagColor" class="form-label">顏色</label>
+                        <input type="color" class="form-control form-control-color" id="editTagColor" value="#808080" title="選擇顏色">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTagDescription" class="form-label">描述</label>
+                        <textarea class="form-control" id="editTagDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveTagChanges()">儲存變更</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const editTagModal = new bootstrap.Modal(document.getElementById('editTagModal'));
+
+    function openEditModal(tagId, name, category, color, description) {
+        document.getElementById('editTagId').value = tagId;
+        document.getElementById('editTagName').value = name;
+        document.getElementById('editTagCategory').value = category;
+        document.getElementById('editTagColor').value = color;
+        // Handle 'None' or empty string for description
+        document.getElementById('editTagDescription').value = (description && description !== 'None' && description !== 'null') ? description : '';
+        document.getElementById('editTagModalLabel').textContent = '編輯標籤';
+        editTagModal.show();
+    }
+    
+    // Optional: If you add a "New Tag" button that uses the same modal
+    // function prepareNewTagModal() {
+    //     document.getElementById('editTagForm').reset();
+    //     document.getElementById('editTagId').value = ''; // Clear ID for new tag
+    //     document.getElementById('editTagColor').value = '#808080'; // Default color
+    //     document.getElementById('editTagModalLabel').textContent = '新增標籤';
+    //     editTagModal.show();
+    // }
+
+    async function saveTagChanges() {
+        const tagId = document.getElementById('editTagId').value;
+        const name = document.getElementById('editTagName').value.trim();
+        const category = document.getElementById('editTagCategory').value.trim();
+        const color = document.getElementById('editTagColor').value;
+        const description = document.getElementById('editTagDescription').value.trim();
+
+        if (!name) {
+            alert('標籤名稱不能為空。');
+            return;
+        }
+
+        // const url = tagId ? `/api/tag/${tagId}/update` : '/api/tag/new'; // Adjust if new tag creation is added
+        const url = `/api/tag/${tagId}/update`;
+        const method = 'POST';
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name, category, color, description }),
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                editTagModal.hide();
+                // Update table row dynamically
+                const row = document.getElementById(`tag-row-${tagId}`);
+                if (row) {
+                    row.querySelector('.tag-name').textContent = result.tag.name;
+                    row.querySelector('.tag-category').textContent = result.tag.category;
+                    row.querySelector('.color-preview').style.backgroundColor = result.tag.color;
+                    row.querySelector('.tag-color-value').textContent = result.tag.color;
+                    row.querySelector('.tag-description').textContent = result.tag.description || '';
+                    // Update the onclick parameters for the edit button
+                    const editButton = row.querySelector('.btn-outline-primary');
+                    if(editButton) {
+                        editButton.setAttribute('onclick', `openEditModal(${result.tag.id}, '${result.tag.name.replace(/'/g, "\\'")}', '${result.tag.category.replace(/'/g, "\\'")}', '${result.tag.color}', '${(result.tag.description || '').replace(/'/g, "\\'")}')`);
+                    }
+                } else {
+                    // Handle new tag if that functionality is added:
+                    // location.reload(); // Simple reload for new tag
+                }
+            } else {
+                alert('儲存失敗: ' + (result.error || '未知錯誤'));
+            }
+        } catch (error) {
+            console.error('Error saving tag:', error);
+            alert('儲存標籤時發生錯誤。');
+        }
+    }
+
+    async function deleteTag(tagId) {
+        if (confirm('確定要刪除這個標籤嗎？相關聯的課程或段落中的此標籤將被移除。')) {
+            try {
+                const response = await fetch(`/api/tag/${tagId}/delete`, {
+                    method: 'DELETE',
+                });
+                const result = await response.json();
+                if (result.success) {
+                    const row = document.getElementById(`tag-row-${tagId}`);
+                    if (row) {
+                        row.remove();
+                    }
+                } else {
+                    alert('刪除失敗: ' + (result.error || '未知錯誤'));
+                }
+            } catch (error) {
+                console.error('Error deleting tag:', error);
+                alert('刪除標籤時發生錯誤。');
+            }
+        }
+    }
+</script>
+{% endblock %}
