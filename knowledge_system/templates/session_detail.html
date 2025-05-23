@@ -116,20 +116,20 @@
                             {% for attachment in segment.attachments %}
                             <div class="col-md-3 mb-2">
                                 {% if attachment.file_type == 'image' %}
-                                <img src="{{ url_for('serve_upload', filename=attachment.filename) }}" 
+                                <img src="{{ url_for('serve_uploads', filename=attachment.filename) }}" 
                                      class="img-thumbnail attachment-preview" 
-                                     onclick="viewAttachmentModal('{{ url_for('serve_upload', filename=attachment.filename) }}', '{{ attachment.original_filename }}')">
+                                     onclick="viewAttachmentModal('{{ url_for('serve_uploads', filename=attachment.filename) }}', '{{ attachment.original_filename }}')">
                                 {% elif attachment.file_type == 'video' %}
                                 <div class="text-center p-3 border rounded">
                                     <i class="fas fa-video fa-3x"></i>
                                     <p>{{ attachment.original_filename }}</p>
-                                    <a href="{{ url_for('serve_upload', filename=attachment.filename) }}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">播放</a>
+                                    <a href="{{ url_for('serve_uploads', filename=attachment.filename) }}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">播放</a>
                                 </div>
                                 {% else %}
                                 <div class="text-center p-3 border rounded">
                                     <i class="fas fa-file fa-3x"></i>
                                     <p>{{ attachment.original_filename }}</p>
-                                     <a href="{{ url_for('serve_upload', filename=attachment.filename) }}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">下載</a>
+                                     <a href="{{ url_for('serve_uploads', filename=attachment.filename) }}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">下載</a>
                                 </div>
                                 {% endif %}
                             </div>
