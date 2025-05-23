@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}編輯課程 - {{ session.title }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-edit"></i> 編輯課程</h3>
+            </div>
+            <div class="card-body">
+                <form id="sessionEditForm">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">課程標題 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="title" value="{{ session.title }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="date" class="form-label">上課日期</label>
+                        <input type="datetime-local" class="form-control" id="date" 
+                               value="{{ session.date.strftime('%Y-%m-%dT%H:%M') }}">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="overview" class="form-label">課程概述</label>
+                        <textarea class="form-control" id="overview" rows="4" 
+                                  placeholder="簡述這堂課的主要內容、處理的問題等...">{{ session.overview }}</textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">課程標籤（大分類）</label>
+                        <!-- Example: Hardcoded primary tags, check if they are in session.tags -->
+                        {% set primary_tags = ['幹細胞', '精研整復', '點穴'] %}
+                        {% set session_tag_names = session.tags|map(attribute='name')|list %}
+                        
+                        <div class="tag-selector">
+                            {% for pt in primary_tags %}
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="tag-{{ pt }}" value="{{ pt }}"
+                                       {% if pt in session_tag_names %}checked{% endif %}>
+                                <label class="form-check-label" for="tag-{{ pt }}">{{ pt }}</label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="mt-2">
+                            <input type="text" class="form-control" id="customTagInput" 
+                                   placeholder="輸入其他標籤（按Enter新增）" 
+                                   onkeypress="handleCustomTagInput(event)">
+                        </div>
+                        
+                        <div id="selectedCustomTags" class="mt-2">
+                            <!-- Custom tags will be displayed here by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('session_detail', session_id=session.id) }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> 返回
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 儲存變更
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const currentSessionId = {{ session.id }};
+let currentCustomTags = []; // Holds tags not in the primary list
+
+// Initialize custom tags from session data
+document.addEventListener('DOMContentLoaded', function() {
+    const sessionTags = {{ session.tags|map(attribute='name')|list|tojson }};
+    const primaryTags = ['幹細胞', '精研整復', '點穴']; 
+    
+    sessionTags.forEach(tag => {
+        if (!primaryTags.includes(tag)) {
+            currentCustomTags.push(tag);
+        }
+    });
+    updateCustomTagDisplay();
+
+    // Pre-fill datetime-local (already handled by Jinja `value` attribute, but good for consistency if JS manipulation is needed)
+    // const dateInput = document.getElementById('date');
+    // if (!dateInput.value) { // Only if Jinja didn't set it, or to override
+    //    dateInput.value = "{{ session.date.strftime('%Y-%m-%dT%H:%M') }}";
+    // }
+});
+
+function handleCustomTagInput(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const input = event.target;
+        const tagName = input.value.trim();
+        
+        if (tagName && !currentCustomTags.includes(tagName) && !document.querySelector(`.form-check-input[value="${tagName}"]`)) {
+            currentCustomTags.push(tagName);
+            updateCustomTagDisplay();
+            input.value = '';
+        } else if (tagName && (currentCustomTags.includes(tagName) || document.querySelector(`.form-check-input[value="${tagName}"]:checked`))) {
+            // If tag already exists (either as custom or checked primary), just clear input
+             input.value = '';
+        }
+    }
+}
+
+function updateCustomTagDisplay() {
+    const container = document.getElementById('selectedCustomTags');
+    container.innerHTML = currentCustomTags.map((tag, index) => `
+        <span class="badge bg-info me-1">
+            ${tag}
+            <i class="fas fa-times ms-1" onclick="removeCustomTag(${index})" style="cursor: pointer;"></i>
+        </span>
+    `).join('');
+}
+
+function removeCustomTag(index) {
+    currentCustomTags.splice(index, 1);
+    updateCustomTagDisplay();
+}
+
+document.getElementById('sessionEditForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const allSelectedTags = [];
+    // Get checked primary tags
+    document.querySelectorAll('.form-check-input:checked').forEach(checkbox => {
+        allSelectedTags.push(checkbox.value);
+    });
+    
+    // Add custom tags (ensure no duplicates if one was unchecked then re-added as custom)
+    currentCustomTags.forEach(tag => {
+        if (!allSelectedTags.includes(tag)) {
+            allSelectedTags.push(tag);
+        }
+    });
+    
+    const data = {
+        title: document.getElementById('title').value,
+        date: document.getElementById('date').value,
+        overview: document.getElementById('overview').value,
+        tags: allSelectedTags,
+        tag_category: '領域' // Default category for new tags, existing tags retain their category on server
+    };
+    
+    try {
+        const response = await fetch(`/session/${currentSessionId}/edit`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            window.location.href = `/session/${result.session_id}`;
+        } else {
+            alert('更新失敗，請重試。錯誤: ' + (result.error || '未知錯誤'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('更新失敗，請重試。');
+    }
+});
+</script>
+{% endblock %}

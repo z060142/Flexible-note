@@ -1,9 +1,10 @@
 import os
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
 from flask_migrate import Migrate
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import json
+from sqlalchemy import func # Added line
 
 from models import db, Session, Segment, Tag, Attachment, QueryRelation
 
@@ -62,6 +63,39 @@ def new_session():
     
     return render_template('session_form.html')
 
+# 編輯課程
+@app.route('/session/<int:session_id>/edit', methods=['GET', 'POST'])
+def edit_session(session_id):
+    session = Session.query.get_or_404(session_id)
+    
+    if request.method == 'POST':
+        data = request.get_json()
+        
+        session.title = data.get('title', session.title)
+        session.overview = data.get('overview', session.overview)
+        
+        if data.get('date'):
+            session.date = datetime.fromisoformat(data.get('date'))
+            
+        # Update tags
+        session.tags.clear() # Remove existing tags first
+        tag_names = data.get('tags', [])
+        tag_category = data.get('tag_category', '領域') # Default category
+        
+        for tag_name in tag_names:
+            tag = Tag.query.filter_by(name=tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name, category=tag_category)
+                db.session.add(tag) # Add new tag to session
+            session.tags.append(tag)
+            
+        db.session.commit()
+        return jsonify({'success': True, 'session_id': session.id})
+        
+    # GET request
+    all_tags = Tag.query.all()
+    return render_template('session_edit_form.html', session=session, all_tags=all_tags)
+
 # 新增段落
 @app.route('/session/<int:session_id>/segment', methods=['POST'])
 def add_segment(session_id):
@@ -109,43 +143,73 @@ def upload_file():
     
     if file and allowed_file(file.filename):
         original_filename = file.filename
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{timestamp}_{filename}"
+        # Use a timestamp and secure_filename to create a unique and safe filename
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(original_filename)}"
         
-        # 確保上傳目錄存在
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        # Ensure upload folder exists
+        upload_folder_path = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder_path, exist_ok=True)
         
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        # Save the file
+        file_path_on_disk = os.path.join(upload_folder_path, filename)
+        file.save(file_path_on_disk)
         
-        # 判斷檔案類型
+        # Determine file type
         ext = filename.rsplit('.', 1)[1].lower()
+        file_type = 'document' # Default
         if ext in ['png', 'jpg', 'jpeg', 'gif']:
             file_type = 'image'
         elif ext in ['mp4', 'avi']:
             file_type = 'video'
-        else:
-            file_type = 'document'
         
+        # Create Attachment record
         attachment = Attachment(
-            filename=filename,
-            original_filename=original_filename,
+            filename=filename, # Stored filename (unique and secure)
+            original_filename=original_filename, # Original filename for display
             file_type=file_type,
-            file_path=file_path,
+            file_path=filename, # Path relative to UPLOAD_FOLDER, or just the filename
             description=request.form.get('description', '')
         )
-        
         db.session.add(attachment)
-        db.session.commit()
         
-        return jsonify({
+        # Associate with segment if segment_id is provided
+        segment_id = request.form.get('segment_id', type=int)
+        processed_segment_id = None 
+        if segment_id is not None: # Check if segment_id was provided and successfully typed to int
+            segment = Segment.query.get(segment_id)
+            if segment:
+                segment.attachments.append(attachment)
+                processed_segment_id = segment.id
+            # else: if segment_id is provided but segment not found, we might log this
+            # For now, the attachment is saved, but not associated if segment is invalid
+                
+        db.session.commit() # Saves attachment and any segment association
+        
+        response_data = {
             'success': True,
             'attachment_id': attachment.id,
-            'filename': attachment.original_filename
-        })
+            'filename': attachment.original_filename 
+        }
+        if processed_segment_id is not None:
+            response_data['segment_id'] = processed_segment_id
+            
+        return jsonify(response_data)
     
     return jsonify({'error': 'File type not allowed'}), 400
+
+# Route to serve uploaded files directly
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# Route to serve files based on Attachment records
+@app.route('/attachment/<int:attachment_id>')
+def serve_attachment(attachment_id):
+    attachment = Attachment.query.get(attachment_id)
+    if not attachment:
+        return "Attachment not found", 404
+    
+    return send_from_directory(app.config['UPLOAD_FOLDER'], attachment.filename, as_attachment=False)
 
 # 標籤管理 API
 @app.route('/api/tags', methods=['GET'])
@@ -164,6 +228,77 @@ def search_tags():
     q = request.args.get('q', '')
     tags = Tag.query.filter(Tag.name.contains(q)).limit(10).all()
     return jsonify([tag.to_dict() for tag in tags])
+
+# Segment Detail API (GET)
+@app.route('/api/segment/<int:segment_id>', methods=['GET'])
+def get_segment_detail(segment_id):
+    segment = Segment.query.get(segment_id) 
+    
+    if not segment:
+        return jsonify({'error': 'Segment not found'}), 404
+        
+    segment_data = {
+        'id': segment.id,
+        'session_id': segment.session_id,
+        'segment_type': segment.segment_type,
+        'title': segment.title,
+        'content': segment.content,
+        'tags': [tag.to_dict() for tag in segment.tags]
+    }
+    
+    return jsonify(segment_data)
+
+# Segment Update API (POST/PUT)
+@app.route('/api/segment/<int:segment_id>/update', methods=['POST']) 
+def update_segment_detail(segment_id):
+    segment = Segment.query.get(segment_id)
+    
+    if not segment:
+        return jsonify({'error': 'Segment not found'}), 404
+        
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No input data provided'}), 400
+
+    segment.segment_type = data.get('segment_type', segment.segment_type)
+    segment.title = data.get('title', segment.title)
+    segment.content = data.get('content', segment.content)
+    
+    if 'tags' in data: 
+        segment.tags.clear()
+        tag_data_list = data.get('tags', [])
+        
+        for tag_info in tag_data_list:
+            tag_name = tag_info.get('name')
+            if not tag_name:
+                continue 
+
+            tag = Tag.query.filter_by(name=tag_name).first()
+            if not tag:
+                tag = Tag(
+                    name=tag_name,
+                    category=tag_info.get('category', '其他'), 
+                    color=tag_info.get('color') 
+                )
+                db.session.add(tag)
+            segment.tags.append(tag)
+            
+    db.session.commit()
+    
+    return jsonify({'success': True, 'segment_id': segment.id})
+
+# Segment Delete API (DELETE)
+@app.route('/api/segment/<int:segment_id>/delete', methods=['DELETE'])
+def delete_segment_detail(segment_id):
+    segment = Segment.query.get(segment_id)
+    
+    if not segment:
+        return jsonify({'error': 'Segment not found'}), 404
+        
+    db.session.delete(segment)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Segment deleted'})
 
 # 進階查詢功能
 @app.route('/search', methods=['GET', 'POST'])
