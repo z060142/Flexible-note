@@ -1,0 +1,175 @@
+/* 全域樣式 */
+:root {
+    --primary-color: #2c3e50;
+    --secondary-color: #3498db;
+    --success-color: #27ae60;
+    --danger-color: #e74c3c;
+    --warning-color: #f39c12;
+    --info-color: #16a085;
+}
+
+body {
+    font-family: 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* 導航列 */
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+/* 卡片樣式 */
+.card {
+    border: none;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+/* 標籤樣式 */
+.badge {
+    padding: 0.5em 0.8em;
+    font-size: 0.875rem;
+    font-weight: normal;
+    border-radius: 20px;
+}
+
+.tag-badge {
+    display: inline-block;
+    margin: 2px;
+}
+
+/* 段落卡片樣式 */
+.segment-card {
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.segment-card .card-header {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    padding: 1rem;
+}
+
+.segment-type-診斷 .card-header {
+    background-color: #d4edda;
+    border-bottom-color: #28a745;
+}
+
+.segment-type-治療 .card-header {
+    background-color: #f8d7da;
+    border-bottom-color: #dc3545;
+}
+
+.segment-type-理論 .card-header {
+    background-color: #fff3cd;
+    border-bottom-color: #ffc107;
+}
+
+/* 標籤輸入 */
+#tagInput {
+    min-height: 45px;
+    cursor: text;
+}
+
+#tagInput input {
+    border: none;
+    outline: none;
+    background: transparent;
+}
+
+/* 附件預覽 */
+.attachment-preview {
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.attachment-preview:hover {
+    transform: scale(1.05);
+}
+
+/* 搜尋結果高亮 */
+.highlight {
+    background-color: #fff3cd;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+/* 關聯線條 */
+.relation-line {
+    stroke: #3498db;
+    stroke-width: 2;
+    fill: none;
+}
+
+.relation-node {
+    fill: #3498db;
+    stroke: #2c3e50;
+    stroke-width: 2;
+}
+
+/* 載入動畫 */
+.spinner-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+/* 響應式調整 */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .segment-card {
+        margin-bottom: 1rem;
+    }
+}
+
+/* 自動完成下拉選單 */
+.autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.autocomplete-item {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.autocomplete-item:hover {
+    background-color: #f8f9fa;
+}
+
+.autocomplete-item.selected {
+    background-color: #007bff;
+    color: white;
+}
+
+/* 列印樣式 */
+@media print {
+    .navbar, .btn, .modal {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #ddd !important;
+        page-break-inside: avoid;
+    }
+}

@@ -1,0 +1,16 @@
+[project]
+name = "knowledge-system"
+version = "0.1.0"
+description = "個人知識管理系統"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0.0",
+    "flask-sqlalchemy>=3.1.1",
+    "flask-migrate>=4.0.5",
+    "python-dotenv>=1.0.0",
+    "pillow>=10.2.0",
+]
+
+[tool.uv]
+dev-dependencies = []

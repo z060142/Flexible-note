@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}課程列表 - 知識管理系統{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="fas fa-list"></i> 課程列表</h1>
+            <a href="{{ url_for('new_session') }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> 新增課程
+            </a>
+        </div>
+
+        <!-- 快速搜尋 -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <input type="text" class="form-control" id="quickSearch" placeholder="搜尋課程標題或標籤...">
+                    </div>
+                    <div class="col-md-6">
+                        <select class="form-select" id="tagFilter">
+                            <option value="">所有標籤</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 課程列表 -->
+        <div class="row" id="sessionList">
+            {% for session in sessions %}
+            <div class="col-md-6 col-lg-4 mb-4 session-card">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">{{ session.title }}</h5>
+                        <small>{{ session.date.strftime('%Y-%m-%d %H:%M') }}</small>
+                    </div>
+                    <div class="card-body">
+                        <!-- 標籤 -->
+                        <div class="mb-2">
+                            {% for tag in session.tags %}
+                            <span class="badge bg-secondary me-1">{{ tag.name }}</span>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- 概述 -->
+                        <p class="card-text">
+                            {{ session.overview[:150] }}{% if session.overview|length > 150 %}...{% endif %}
+                        </p>
+                        
+                        <!-- 統計資訊 -->
+                        <div class="text-muted small">
+                            <i class="fas fa-paragraph"></i> {{ session.segments.count() }} 個段落
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <a href="{{ url_for('session_detail', session_id=session.id) }}" class="btn btn-primary btn-sm">
+                            <i class="fas fa-eye"></i> 查看詳情
+                        </a>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="editSession({{ session.id }})">
+                            <i class="fas fa-edit"></i> 編輯
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        {% if not sessions %}
+        <div class="alert alert-info text-center">
+            <i class="fas fa-info-circle"></i> 尚無課程記錄，請點擊上方按鈕新增第一堂課程。
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// 快速搜尋功能
+document.getElementById('quickSearch').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const cards = document.querySelectorAll('.session-card');
+    
+    cards.forEach(card => {
+        const title = card.querySelector('h5').textContent.toLowerCase();
+        const tags = Array.from(card.querySelectorAll('.badge')).map(b => b.textContent.toLowerCase());
+        const overview = card.querySelector('.card-text').textContent.toLowerCase();
+        
+        if (title.includes(searchTerm) || tags.some(tag => tag.includes(searchTerm)) || overview.includes(searchTerm)) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+});
+
+// 載入標籤過濾器
+async function loadTagFilter() {
+    try {
+        const response = await fetch('/api/tags');
+        const tags = await response.json();
+        
+        const select = document.getElementById('tagFilter');
+        tags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag.name;
+            option.textContent = `${tag.name} (${tag.category})`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('載入標籤失敗:', error);
+    }
+}
+
+// 標籤過濾
+document.getElementById('tagFilter').addEventListener('change', function(e) {
+    const selectedTag = e.target.value;
+    const cards = document.querySelectorAll('.session-card');
+    
+    cards.forEach(card => {
+        if (!selectedTag) {
+            card.style.display = '';
+            return;
+        }
+        
+        const tags = Array.from(card.querySelectorAll('.badge')).map(b => b.textContent);
+        if (tags.includes(selectedTag)) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+});
+
+// 編輯課程
+function editSession(sessionId) {
+    // TODO: 實現編輯功能
+    window.location.href = `/session/${sessionId}/edit`;
+}
+
+// 頁面載入時初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadTagFilter();
+});
+</script>
+{% endblock %}

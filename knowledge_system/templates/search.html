@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+
+{% block title %}進階查詢 - 知識管理系統{% endblock %}
+
+{% block extra_css %}
+<style>
+    .query-builder {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .query-type-card {
+        cursor: pointer;
+        transition: all 0.3s;
+        height: 100%;
+    }
+    
+    .query-type-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    
+    .query-type-card.active {
+        border: 2px solid #007bff;
+        background-color: #e7f3ff;
+    }
+    
+    .result-item {
+        border-left: 4px solid #007bff;
+        margin-bottom: 15px;
+        padding: 15px;
+        background-color: white;
+        border-radius: 5px;
+    }
+    
+    .relation-strength {
+        display: inline-block;
+        width: 50px;
+        height: 5px;
+        background-color: #ddd;
+        border-radius: 3px;
+        position: relative;
+        margin-left: 10px;
+    }
+    
+    .relation-strength-bar {
+        position: absolute;
+        height: 100%;
+        background-color: #28a745;
+        border-radius: 3px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4"><i class="fas fa-search"></i> 進階查詢</h1>
+    
+    <!-- 查詢類型選擇 -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card query-type-card" onclick="selectQueryType('symptom_to_cause', event)">
+                <div class="card-body text-center">
+                    <i class="fas fa-stethoscope fa-3x text-primary mb-3"></i>
+                    <h5>症狀診斷</h5>
+                    <p class="text-muted small">從症狀找可能病因</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card query-type-card" onclick="selectQueryType('cause_to_treatment', event)">
+                <div class="card-body text-center">
+                    <i class="fas fa-pills fa-3x text-success mb-3"></i>
+                    <h5>治療方案</h5>
+                    <p class="text-muted small">從病因找治療方法</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card query-type-card" onclick="selectQueryType('method_analysis', event)">
+                <div class="card-body text-center">
+                    <i class="fas fa-hand-paper fa-3x text-warning mb-3"></i>
+                    <h5>手法分析</h5>
+                    <p class="text-muted small">查看手法適用範圍</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card query-type-card" onclick="selectQueryType('relation_map', event)">
+                <div class="card-body text-center">
+                    <i class="fas fa-project-diagram fa-3x text-danger mb-3"></i>
+                    <h5>關聯圖譜</h5>
+                    <p class="text-muted small">探索知識關聯</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 查詢建構器 -->
+    <div class="query-builder" id="queryBuilder" style="display: none;">
+        <h4 id="queryTitle">建構查詢</h4>
+        
+        <!-- 症狀診斷查詢 -->
+        <div id="symptom_to_cause_builder" class="query-form" style="display: none;">
+            <div class="mb-3">
+                <label class="form-label">選擇症狀</label>
+                <div class="tag-selector" id="symptomSelector">
+                    <input type="text" class="form-control" placeholder="輸入症狀名稱..." 
+                           id="symptomInput">
+                </div>
+                <div id="selectedSymptoms" class="mt-2"></div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">症狀位置（選填）</label>
+                <input type="text" class="form-control" id="symptomLocation" 
+                       placeholder="例如：髖關節、腰椎、肩膀...">
+            </div>
+            
+            <button class="btn btn-primary" onclick="executeQuery()">
+                <i class="fas fa-search"></i> 查詢可能病因
+            </button>
+        </div>
+        
+        <!-- 治療方案查詢 -->
+        <div id="cause_to_treatment_builder" class="query-form" style="display: none;">
+            <div class="mb-3">
+                <label class="form-label">選擇病因/問題</label>
+                <div class="tag-selector" id="causeSelector">
+                    <input type="text" class="form-control" placeholder="輸入病因名稱..." 
+                           id="causeInput">
+                </div>
+                <div id="selectedCauses" class="mt-2"></div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">偏好領域（選填）</label>
+                <select class="form-select" id="preferredDomain">
+                    <option value="">不限</option>
+                    <option value="整復">整復</option>
+                    <option value="點穴">點穴</option>
+                    <option value="幹細胞">幹細胞</option>
+                </select>
+            </div>
+            
+            <button class="btn btn-primary" onclick="executeQuery()">
+                <i class="fas fa-search"></i> 查詢治療方案
+            </button>
+        </div>
+        
+        <!-- 手法分析查詢 -->
+        <div id="method_analysis_builder" class="query-form" style="display: none;">
+            <div class="mb-3">
+                <label class="form-label">選擇手法</label>
+                <input type="text" class="form-control" id="methodInput" 
+                       placeholder="輸入手法名稱...">
+            </div>
+            
+            <button class="btn btn-primary" onclick="executeQuery()">
+                <i class="fas fa-search"></i> 分析手法應用
+            </button>
+        </div>
+        
+        <!-- 關聯圖譜查詢 -->
+        <div id="relation_map_builder" class="query-form" style="display: none;">
+            <div class="mb-3">
+                <label class="form-label">起始點</label>
+                <input type="text" class="form-control" id="startPoint" 
+                       placeholder="輸入症狀、病因或手法...">
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">探索深度</label>
+                <select class="form-select" id="exploreDepth">
+                    <option value="1">1層關聯</option>
+                    <option value="2" selected>2層關聯</option>
+                    <option value="3">3層關聯</option>
+                </select>
+            </div>
+            
+            <button class="btn btn-primary" onclick="executeQuery()">
+                <i class="fas fa-project-diagram"></i> 生成關聯圖
+            </button>
+        </div>
+    </div>
+    
+    <!-- 查詢結果 -->
+    <div id="queryResults" style="display: none;">
+        <h4 class="mb-3">查詢結果</h4>
+        <div id="resultsList"></div>
+    </div>
+    
+    <!-- 關聯圖顯示區 -->
+    <div id="relationGraphContainer" style="display: none;">
+        <div class="card">
+            <div class="card-body">
+                <div id="relationGraph" style="height: 600px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentQueryType = null;
+let selectedTags = {
+    symptoms: [],
+    causes: []
+};
+
+// 選擇查詢類型
+function selectQueryType(type, event) {
+    currentQueryType = type;
+    
+    // 更新UI
+    document.querySelectorAll('.query-type-card').forEach(card => {
+        card.classList.remove('active');
+    });
+    // Ensure event is passed and currentTarget is valid
+    if (event && event.currentTarget) {
+        event.currentTarget.classList.add('active');
+    } else {
+        // Fallback if event or currentTarget is not available
+        // This might happen if called programmatically without an event
+        const selectedCard = document.querySelector(`.query-type-card[onclick*="${type}"]`);
+        if (selectedCard) {
+            selectedCard.classList.add('active');
+        }
+    }
+    
+    // 顯示對應的查詢建構器
+    document.getElementById('queryBuilder').style.display = 'block';
+    document.querySelectorAll('.query-form').forEach(form => {
+        form.style.display = 'none';
+    });
+    document.getElementById(`${type}_builder`).style.display = 'block';
+    
+    // 更新標題
+    const titles = {
+        'symptom_to_cause': '症狀診斷查詢',
+        'cause_to_treatment': '治療方案查詢',
+        'method_analysis': '手法分析查詢',
+        'relation_map': '關聯圖譜查詢'
+    };
+    document.getElementById('queryTitle').textContent = titles[type];
+    
+    // 隱藏之前的結果
+    document.getElementById('queryResults').style.display = 'none';
+    document.getElementById('relationGraphContainer').style.display = 'none';
+}
+
+// 執行查詢
+async function executeQuery() {
+    const queryData = buildQueryData();
+    
+    try {
+        const response = await fetch('/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(queryData)
+        });
+        
+        const results = await response.json();
+        displayResults(results);
+    } catch (error) {
+        console.error('查詢失敗:', error);
+        alert('查詢失敗，請重試');
+    }
+}
+
+// 建構查詢資料
+function buildQueryData() {
+    const data = {
+        query_type: currentQueryType
+    };
+    
+    switch(currentQueryType) {
+        case 'symptom_to_cause':
+            data.symptom_tags = selectedTags.symptoms.map(tag => tag.name); // Assuming selectedTags.symptoms contains tag objects
+            data.location = document.getElementById('symptomLocation').value;
+            break;
+        case 'cause_to_treatment':
+            data.cause_tags = selectedTags.causes.map(tag => tag.name); // Assuming selectedTags.causes contains tag objects
+            data.preferred_domain = document.getElementById('preferredDomain').value;
+            break;
+        case 'method_analysis':
+            data.method_name = document.getElementById('methodInput').value;
+            break;
+        case 'relation_map':
+            data.start_point = document.getElementById('startPoint').value;
+            data.depth = parseInt(document.getElementById('exploreDepth').value);
+            break;
+    }
+    
+    return data;
+}
+
+// 顯示查詢結果
+function displayResults(results) {
+    if (currentQueryType === 'relation_map') {
+        displayRelationGraph(results);
+        return;
+    }
+    
+    const container = document.getElementById('resultsList');
+    container.innerHTML = '';
+    
+    if (!results || !results.results || results.results.length === 0) { // Added checks for results and results.results
+        container.innerHTML = '<div class="alert alert-info">沒有找到相關結果</div>';
+    } else {
+        results.results.forEach(result => {
+            container.innerHTML += createResultItem(result);
+        });
+    }
+    
+    document.getElementById('queryResults').style.display = 'block';
+}
+
+// 創建結果項目
+function createResultItem(result) {
+    // Default values for potentially missing fields
+    const title = result.title || '無標題';
+    const description = result.description || '無描述';
+    const tags = result.tags || [];
+    const strength = result.strength; // Strength might be undefined
+    const sessionId = result.session_id || '#';
+    const segmentId = result.segment_id || '';
+
+    let strengthHTML = '';
+    if (typeof strength !== 'undefined' && strength !== null) {
+        strengthHTML = `
+            <div>
+                關聯強度：
+                <span class="relation-strength">
+                    <span class="relation-strength-bar" 
+                          style="width: ${strength * 100}%"></span>
+                </span>
+                <small class="text-muted">${(strength * 100).toFixed(0)}%</small>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="result-item">
+            <h5>${title}</h5>
+            <p class="text-muted">${description}</p>
+            
+            <div class="mb-2">
+                ${tags.map(tag => `<span class="badge bg-secondary">${tag}</span>`).join('')}
+            </div>
+            
+            ${strengthHTML}
+            
+            <div class="mt-2">
+                <a href="/session/${sessionId}${segmentId ? '#segment-' + segmentId : ''}" 
+                   class="btn btn-sm btn-outline-primary">
+                    查看詳情
+                </a>
+            </div>
+        </div>
+    `;
+}
+
+// 顯示關聯圖
+function displayRelationGraph(data) {
+    document.getElementById('relationGraphContainer').style.display = 'block';
+    const container = document.getElementById('relationGraph');
+    container.innerHTML = '<p class="text-center">關聯圖功能開發中...</p>';
+    // Placeholder for D3.js or other graph library integration
+    if (window.RelationGraph && data && data.nodes && data.links) {
+        const graph = new RelationGraph(container);
+        graph.init(data);
+    }
+}
+
+// 標籤輸入自動完成 (Example for symptomInput)
+if (document.getElementById('symptomInput')) {
+    new TagAutocomplete(document.getElementById('symptomInput'), (tag) => {
+        if (!selectedTags.symptoms.find(t => t.id === tag.id)) {
+            selectedTags.symptoms.push(tag);
+            updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
+        }
+    });
+}
+if (document.getElementById('causeInput')) {
+    new TagAutocomplete(document.getElementById('causeInput'), (tag) => {
+         if (!selectedTags.causes.find(t => t.id === tag.id)) {
+            selectedTags.causes.push(tag);
+            updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
+        }
+    });
+}
+
+
+function updateSelectedTagsDisplay(containerId, tagsArray, type) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = tagsArray.map((tag, index) => `
+        <span class="badge me-1" style="background-color: ${tag.color || '#6c757d'}">
+            ${tag.category ? tag.category + ':' : ''}${tag.name}
+            <i class="fas fa-times ms-1" onclick="removeSelectedTag('${type}', ${index})" style="cursor: pointer"></i>
+        </span>
+    `).join('');
+}
+
+function removeSelectedTag(type, index) {
+    if (type === 'symptoms') {
+        selectedTags.symptoms.splice(index, 1);
+        updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
+    } else if (type === 'causes') {
+        selectedTags.causes.splice(index, 1);
+        updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
+    }
+}
+
+
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tagParam = urlParams.get('tag');
+    if (tagParam) {
+        // This is a simplified search trigger. 
+        // A more complete implementation would select a query type and populate fields.
+        console.log('搜尋標籤:', tagParam);
+        // Example: Pre-fill a search field or trigger a default search
+        // For instance, if you have a general tag search, you could trigger it here.
+        // selectQueryType('symptom_to_cause'); // Or another relevant type
+        // document.getElementById('symptomInput').value = tagParam; 
+        // executeQuery();
+        
+        // For now, just log it, as the full logic isn't defined for direct tag search from URL
+        alert("查詢參數中的標籤: " + tagParam + "\n此功能需要進一步實現以自動執行搜尋。");
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}新增課程 - 知識管理系統{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-plus-circle"></i> 新增課程</h3>
+            </div>
+            <div class="card-body">
+                <form id="sessionForm">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">課程標題 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="title" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="date" class="form-label">上課日期</label>
+                        <input type="datetime-local" class="form-control" id="date" 
+                               value="{{ datetime.now().strftime('%Y-%m-%dT%H:%M') }}">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="overview" class="form-label">課程概述</label>
+                        <textarea class="form-control" id="overview" rows="4" 
+                                  placeholder="簡述這堂課的主要內容、處理的問題等..."></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">課程標籤（大分類）</label>
+                        <div class="tag-selector">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="tag-幹細胞" value="幹細胞">
+                                <label class="form-check-label" for="tag-幹細胞">幹細胞</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="tag-精研整復" value="精研整復">
+                                <label class="form-check-label" for="tag-精研整復">精研整復</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="tag-點穴" value="點穴">
+                                <label class="form-check-label" for="tag-點穴">點穴</label>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-2">
+                            <input type="text" class="form-control" id="customTag" 
+                                   placeholder="輸入其他標籤（按Enter新增）" 
+                                   onkeypress="addCustomTag(event)">
+                        </div>
+                        
+                        <div id="selectedTags" class="mt-2"></div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        建立課程後，您可以開始新增段落來記錄詳細內容。每個段落可以有自己的標籤和附件。
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> 返回
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 建立課程
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let customTags = [];
+
+// 處理表單提交
+document.getElementById('sessionForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    // 收集所有標籤
+    const tags = [];
+    
+    // 預設標籤
+    document.querySelectorAll('.form-check-input:checked').forEach(checkbox => {
+        tags.push(checkbox.value);
+    });
+    
+    // 自訂標籤
+    tags.push(...customTags);
+    
+    const data = {
+        title: document.getElementById('title').value,
+        date: document.getElementById('date').value,
+        overview: document.getElementById('overview').value,
+        tags: tags,
+        tag_category: '領域' // Assuming '領域' is the default category for these session tags
+    };
+    
+    try {
+        const response = await fetch('/session/new', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // 跳轉到課程詳情頁
+            window.location.href = `/session/${result.session_id}`;
+        } else {
+            alert('建立失敗，請重試');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('建立失敗，請重試');
+    }
+});
+
+// 新增自訂標籤
+function addCustomTag(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const input = event.target;
+        const tag = input.value.trim();
+        
+        if (tag && !customTags.includes(tag)) {
+            customTags.push(tag);
+            updateCustomTags();
+            input.value = '';
+        }
+    }
+}
+
+// 更新自訂標籤顯示
+function updateCustomTags() {
+    const container = document.getElementById('selectedTags');
+    container.innerHTML = customTags.map((tag, index) => `
+        <span class="badge bg-primary me-1">
+            ${tag}
+            <i class="fas fa-times ms-1" onclick="removeCustomTag(${index})" 
+               style="cursor: pointer"></i>
+        </span>
+    `).join('');
+}
+
+// 移除自訂標籤
+function removeCustomTag(index) {
+    customTags.splice(index, 1);
+    updateCustomTags();
+}
+
+// 自動建議已有標籤
+async function loadTagSuggestions() {
+    try {
+        const response = await fetch('/api/tags?category=領域');
+        const tags = await response.json();
+        
+        // TODO: 實現標籤自動完成功能
+    } catch (error) {
+        console.error('載入標籤失敗:', error);
+    }
+}
+
+// 頁面載入時初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // Value for datetime-local input needs to be in 'YYYY-MM-DDTHH:MM' format
+    // The original Jinja template had `datetime.now().strftime('%Y-%m-%dT%H:%M')`
+    // which would be rendered server-side. Replicating this approximately in JS.
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    document.getElementById('date').value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    
+    loadTagSuggestions();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+
+{% block title %}{{ session.title }} - 知識管理系統{% endblock %}
+
+{% block extra_css %}
+<style>
+    .segment-card {
+        border-left: 4px solid #007bff;
+        transition: all 0.3s ease;
+    }
+    
+    .segment-card:hover {
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .segment-type-診斷 { border-left-color: #28a745; }
+    .segment-type-治療 { border-left-color: #dc3545; }
+    .segment-type-理論 { border-left-color: #ffc107; }
+    
+    .tag-badge {
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .tag-badge:hover {
+        transform: scale(1.1);
+    }
+    
+    .attachment-preview {
+        max-width: 200px;
+        max-height: 200px;
+        object-fit: cover;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- 課程標題區 -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h1>{{ session.title }}</h1>
+                        <p class="text-muted">
+                            <i class="fas fa-calendar"></i> {{ session.date.strftime('%Y年%m月%d日 %H:%M') }}
+                        </p>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary" onclick="addSegment()">
+                            <i class="fas fa-plus"></i> 新增段落
+                        </button>
+                        <button class="btn btn-secondary" onclick="showRelations()">
+                            <i class="fas fa-project-diagram"></i> 查看關聯
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 課程標籤 -->
+                <div class="mt-3">
+                    {% for tag in session.tags %}
+                    <span class="badge bg-primary tag-badge" style="background-color: {{ tag.color }}!important">
+                        {{ tag.name }}
+                    </span>
+                    {% endfor %}
+                </div>
+                
+                <!-- 課程概述 -->
+                {% if session.overview %}
+                <div class="mt-3">
+                    <h5>課程概述</h5>
+                    <p>{{ session.overview }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 段落列表 -->
+        <div id="segmentList">
+            {% for segment in segments %}
+            <div class="card mb-3 segment-card segment-type-{{ segment.segment_type }}" data-segment-id="{{ segment.id }}">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge bg-info">{{ segment.segment_type }}</span>
+                            {% if segment.title %}
+                            <strong>{{ segment.title }}</strong>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editSegment({{ segment.id }})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteSegment({{ segment.id }})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- 段落內容 -->
+                    <div class="segment-content">{{ segment.content|safe }}</div>
+                    
+                    <!-- 段落標籤 -->
+                    <div class="mt-3">
+                        {% for tag in segment.tags %}
+                        <span class="badge bg-secondary tag-badge" 
+                              style="background-color: {{ tag.color }}!important"
+                              onclick="searchByTag('{{ tag.name }}')">
+                            <i class="fas fa-tag"></i> {{ tag.name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- 附件 -->
+                    {% if segment.attachments %}
+                    <div class="mt-3">
+                        <h6>附件</h6>
+                        <div class="row">
+                            {% for attachment in segment.attachments %}
+                            <div class="col-md-3 mb-2">
+                                {% if attachment.file_type == 'image' %}
+                                <img src="/uploads/{{ attachment.filename }}" 
+                                     class="img-thumbnail attachment-preview" 
+                                     onclick="viewAttachment({{ attachment.id }})">
+                                {% elif attachment.file_type == 'video' %}
+                                <div class="text-center p-3 border rounded">
+                                    <i class="fas fa-video fa-3x"></i>
+                                    <p>{{ attachment.original_filename }}</p>
+                                </div>
+                                {% else %}
+                                <div class="text-center p-3 border rounded">
+                                    <i class="fas fa-file fa-3x"></i>
+                                    <p>{{ attachment.original_filename }}</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- 新增/編輯段落 Modal -->
+<div class="modal fade" id="segmentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">新增段落</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="segmentForm">
+                    <div class="mb-3">
+                        <label class="form-label">段落類型</label>
+                        <select class="form-select" id="segmentType">
+                            <option value="診斷">診斷</option>
+                            <option value="治療">治療</option>
+                            <option value="理論">理論</option>
+                            <option value="案例">案例</option>
+                            <option value="其他">其他</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">標題（選填）</label>
+                        <input type="text" class="form-control" id="segmentTitle">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">內容</label>
+                        <textarea class="form-control" id="segmentContent" rows="5"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">標籤</label>
+                        <div id="tagInput" class="border rounded p-2">
+                            <input type="text" class="form-control" placeholder="輸入標籤名稱..." 
+                                   onkeypress="handleTagInput(event)">
+                        </div>
+                        <div id="selectedTags" class="mt-2"></div>
+                        <small class="text-muted">按Enter新增標籤，支援格式：手法:按壓、症狀:痛、位置:膀胱</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">上傳附件</label>
+                        <input type="file" class="form-control" id="attachmentFile" multiple 
+                               accept="image/*,video/*,.pdf,.doc,.docx">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveSegment()">儲存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const sessionId = {{ session.id }};
+let currentSegmentId = null;
+let selectedTags = [];
+
+// 新增段落
+function addSegment() {
+    currentSegmentId = null;
+    selectedTags = [];
+    document.getElementById('segmentForm').reset();
+    document.getElementById('selectedTags').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('segmentModal')).show();
+}
+
+// 編輯段落
+function editSegment(segmentId) {
+    currentSegmentId = segmentId;
+    // TODO: 載入段落資料
+    new bootstrap.Modal(document.getElementById('segmentModal')).show();
+}
+
+// 處理標籤輸入
+function handleTagInput(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const input = event.target;
+        const tagText = input.value.trim();
+        
+        if (tagText) {
+            let category = '其他';
+            let name = tagText;
+            
+            // 解析標籤格式
+            if (tagText.includes(':')) {
+                const parts = tagText.split(':');
+                category = parts[0];
+                name = parts[1];
+            }
+            
+            selectedTags.push({
+                name: name,
+                category: category,
+                color: getCategoryColor(category)
+            });
+            
+            updateTagDisplay();
+            input.value = '';
+        }
+    }
+}
+
+// 根據分類獲取顏色
+function getCategoryColor(category) {
+    const colors = {
+        '手法': '#007bff',
+        '症狀': '#dc3545',
+        '位置': '#28a745',
+        '施術位置': '#17a2b8',
+        '治療位置': '#ffc107',
+        '領域': '#6610f2',
+        '其他': '#6c757d'
+    };
+    return colors[category] || '#6c757d';
+}
+
+// 更新標籤顯示
+function updateTagDisplay() {
+    const container = document.getElementById('selectedTags');
+    container.innerHTML = selectedTags.map((tag, index) => `
+        <span class="badge me-1" style="background-color: ${tag.color}">
+            ${tag.category}:${tag.name}
+            <i class="fas fa-times ms-1" onclick="removeTag(${index})" style="cursor: pointer"></i>
+        </span>
+    `).join('');
+}
+
+// 移除標籤
+function removeTag(index) {
+    selectedTags.splice(index, 1);
+    updateTagDisplay();
+}
+
+// 儲存段落
+async function saveSegment() {
+    const data = {
+        segment_type: document.getElementById('segmentType').value,
+        title: document.getElementById('segmentTitle').value,
+        content: document.getElementById('segmentContent').value,
+        tags: selectedTags
+    };
+    
+    try {
+        const response = await fetch(`/session/${sessionId}/segment`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            // 處理附件上傳
+            const fileInput = document.getElementById('attachmentFile');
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                for (let file of fileInput.files) {
+                    formData.append('file', file);
+                }
+                
+                await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+            }
+            
+            location.reload();
+        }
+    } catch (error) {
+        console.error('儲存失敗:', error);
+        alert('儲存失敗，請重試');
+    }
+}
+
+// 刪除段落
+async function deleteSegment(segmentId) {
+    if (confirm('確定要刪除這個段落嗎？')) {
+        // TODO: 實現刪除功能
+        location.reload();
+    }
+}
+
+// 根據標籤搜尋
+function searchByTag(tagName) {
+    window.location.href = `/search?tag=${encodeURIComponent(tagName)}`;
+}
+
+// 查看關聯
+function showRelations() {
+    // TODO: 實現關聯視圖
+    alert('關聯視圖功能開發中...');
+}
+
+// 查看附件
+function viewAttachment(attachmentId) {
+    // TODO: 實現附件查看功能
+    window.open(`/attachment/${attachmentId}`, '_blank');
+}
+</script>
+{% endblock %}
