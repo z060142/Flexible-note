@@ -8,6 +8,21 @@ from sqlalchemy import func, and_
 
 from models import db, Session, Segment, Tag, Attachment, QueryRelation
 
+# Default colors for tag categories (can be expanded)
+CATEGORY_COLORS = {
+    '手法': '#007bff',    # Blue
+    '症狀': '#dc3545',    # Red
+    '位置': '#28a745',    # Green
+    '施術位置': '#17a2b8', # Teal
+    '治療位置': '#ffc107', # Yellow
+    '領域': '#6610f2',    # Indigo
+    '病因': '#fd7e14',    # Orange
+    '內容': '#6c757d',    # Grey (For default segment type, or tag category)
+    '理論': '#ffc107',    # Yellow 
+    '案例': '#20c997',    # Cyan
+    '其他': '#6c757d'     # Grey
+}
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///knowledge.db')
@@ -34,7 +49,7 @@ def index():
 def session_detail(session_id):
     session = Session.query.get_or_404(session_id)
     segments = session.segments.order_by(Segment.order_index).all()
-    return render_template('session_detail.html', session=session, segments=segments)
+    return render_template('session_detail.html', session=session, segments=segments, category_colors=CATEGORY_COLORS)
 
 # 新增課程
 @app.route('/session/new', methods=['GET', 'POST'])
@@ -111,10 +126,12 @@ def add_segment(session_id):
     for tag_info in tag_data:
         tag = Tag.query.filter_by(name=tag_info['name']).first()
         if not tag:
+            category = tag_info.get('category', '其他')
+            color = tag_info.get('color', CATEGORY_COLORS.get(category, '#6c757d'))
             tag = Tag(
                 name=tag_info['name'],
-                category=tag_info.get('category', '其他'),
-                color=tag_info.get('color', '#808080')
+                category=category,
+                color=color
             )
             db.session.add(tag)
         segment.tags.append(tag)
@@ -182,7 +199,7 @@ def serve_attachment(attachment_id):
 @app.route('/tags/manage')
 def manage_tags():
     tags = Tag.query.order_by(Tag.category, Tag.name).all()
-    return render_template('tag_management.html', tags=tags)
+    return render_template('tag_management.html', tags=tags, category_colors=CATEGORY_COLORS)
 
 # API Routes
 @app.route('/api/tags', methods=['GET'])
@@ -258,7 +275,9 @@ def update_segment_detail(segment_id):
             if not tag_name: continue 
             tag = Tag.query.filter_by(name=tag_name).first()
             if not tag:
-                tag = Tag(name=tag_name, category=tag_info.get('category', '其他'), color=tag_info.get('color'))
+                category = tag_info.get('category', '其他')
+                color = tag_info.get('color', CATEGORY_COLORS.get(category, '#6c757d'))
+                tag = Tag(name=tag_name, category=category, color=color)
                 db.session.add(tag)
             segment.tags.append(tag)
     db.session.commit()

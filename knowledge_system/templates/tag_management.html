@@ -48,13 +48,13 @@
                             <td class="tag-name">{{ tag.name }}</td>
                             <td class="tag-category">{{ tag.category }}</td>
                             <td>
-                                <span class="color-preview" style="background-color: {{ tag.color if tag.color else '#808080' }};"></span>
-                                <span class="tag-color-value">{{ tag.color if tag.color else '#808080' }}</span>
+                                <span class="color-preview" style="background-color: {{ tag.color if tag.color else category_colors.get(tag.category, '#cccccc') }};"></span>
+                                <span class="tag-color-value">{{ tag.color if tag.color else category_colors.get(tag.category, '#cccccc') }}</span>
                             </td>
                             <td class="tag-description">{{ tag.description if tag.description else '' }}</td>
                             <td>
                                 <button class="btn btn-sm btn-outline-primary me-1" 
-                                        onclick="openEditModal({{ tag.id }}, '{{ tag.name }}', '{{ tag.category }}', '{{ tag.color if tag.color else '#808080' }}', '{{ tag.description if tag.description else '' | e }}')">
+                                        onclick="openEditModal({{ tag.id }}, '{{ tag.name }}', '{{ tag.category }}', '{{ tag.color if tag.color else category_colors.get(tag.category, '#cccccc') }}', '{{ tag.description if tag.description else '' | e }}')">
                                     <i class="fas fa-edit"></i> 編輯
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger" onclick="deleteTag({{ tag.id }})">
@@ -95,7 +95,7 @@
                     </div>
                     <div class="mb-3">
                         <label for="editTagColor" class="form-label">顏色</label>
-                        <input type="color" class="form-control form-control-color" id="editTagColor" value="#808080" title="選擇顏色">
+                        <input type="color" class="form-control form-control-color" id="editTagColor" value="#cccccc" title="選擇顏色">
                     </div>
                     <div class="mb-3">
                         <label for="editTagDescription" class="form-label">描述</label>
@@ -115,27 +115,24 @@
 {% block extra_js %}
 <script>
     const editTagModal = new bootstrap.Modal(document.getElementById('editTagModal'));
+    const defaultFallbackColor = '#cccccc'; // Consistent fallback
+    const categoryColors = {{ category_colors | tojson | safe }};
+
+    function getDisplayColor(tagColor, tagCategory) {
+        return tagColor || categoryColors[tagCategory] || defaultFallbackColor;
+    }
 
     function openEditModal(tagId, name, category, color, description) {
         document.getElementById('editTagId').value = tagId;
         document.getElementById('editTagName').value = name;
         document.getElementById('editTagCategory').value = category;
-        document.getElementById('editTagColor').value = color;
-        // Handle 'None' or empty string for description
+        // Use the same logic for the color picker's initial value
+        document.getElementById('editTagColor').value = color; // color here is already resolved with fallback from Jinja
         document.getElementById('editTagDescription').value = (description && description !== 'None' && description !== 'null') ? description : '';
         document.getElementById('editTagModalLabel').textContent = '編輯標籤';
         editTagModal.show();
     }
     
-    // Optional: If you add a "New Tag" button that uses the same modal
-    // function prepareNewTagModal() {
-    //     document.getElementById('editTagForm').reset();
-    //     document.getElementById('editTagId').value = ''; // Clear ID for new tag
-    //     document.getElementById('editTagColor').value = '#808080'; // Default color
-    //     document.getElementById('editTagModalLabel').textContent = '新增標籤';
-    //     editTagModal.show();
-    // }
-
     async function saveTagChanges() {
         const tagId = document.getElementById('editTagId').value;
         const name = document.getElementById('editTagName').value.trim();
@@ -148,7 +145,6 @@
             return;
         }
 
-        // const url = tagId ? `/api/tag/${tagId}/update` : '/api/tag/new'; // Adjust if new tag creation is added
         const url = `/api/tag/${tagId}/update`;
         const method = 'POST';
 
@@ -165,22 +161,21 @@
 
             if (result.success) {
                 editTagModal.hide();
-                // Update table row dynamically
                 const row = document.getElementById(`tag-row-${tagId}`);
                 if (row) {
+                    const displayColor = getDisplayColor(result.tag.color, result.tag.category);
                     row.querySelector('.tag-name').textContent = result.tag.name;
                     row.querySelector('.tag-category').textContent = result.tag.category;
-                    row.querySelector('.color-preview').style.backgroundColor = result.tag.color;
-                    row.querySelector('.tag-color-value').textContent = result.tag.color;
+                    row.querySelector('.color-preview').style.backgroundColor = displayColor;
+                    row.querySelector('.tag-color-value').textContent = displayColor;
                     row.querySelector('.tag-description').textContent = result.tag.description || '';
-                    // Update the onclick parameters for the edit button
+                    
                     const editButton = row.querySelector('.btn-outline-primary');
                     if(editButton) {
-                        editButton.setAttribute('onclick', `openEditModal(${result.tag.id}, '${result.tag.name.replace(/'/g, "\\'")}', '${result.tag.category.replace(/'/g, "\\'")}', '${result.tag.color}', '${(result.tag.description || '').replace(/'/g, "\\'")}')`);
+                        // Update the color passed to openEditModal to be the resolved color
+                        const currentDescription = result.tag.description || '';
+                        editButton.setAttribute('onclick', `openEditModal(${result.tag.id}, '${result.tag.name.replace(/'/g, "\\'")}', '${result.tag.category.replace(/'/g, "\\'")}', '${displayColor}', '${currentDescription.replace(/'/g, "\\'")}')`);
                     }
-                } else {
-                    // Handle new tag if that functionality is added:
-                    // location.reload(); // Simple reload for new tag
                 }
             } else {
                 alert('儲存失敗: ' + (result.error || '未知錯誤'));
