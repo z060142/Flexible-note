@@ -474,6 +474,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 selectedTags.symptoms.push(tag);
                 updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
             }
+        }, {
+            autoPrefix: true
         });
     }
     
@@ -485,6 +487,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 selectedTags.causes.push(tag);
                 updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
             }
+        }, {
+            autoPrefix: true
         });
     }
     
@@ -493,6 +497,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (methodInput) {
         new TagAutocomplete(methodInput, (tag) => {
             methodInput.value = tag.name;
+        }, {
+            autoPrefix: true
         });
     }
     

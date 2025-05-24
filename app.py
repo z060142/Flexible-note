@@ -2,12 +2,15 @@ import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
 from flask_migrate import Migrate
 from werkzeug.utils import secure_filename
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
-from sqlalchemy import func, and_ 
+from sqlalchemy import func, and_, or_, text
 
 # 添加這個重要的導入
-from models import db, Session, Segment, Tag, Attachment, QueryRelation
+from models import db, Session, Segment, Tag, Attachment, QueryRelation, session_tags, segment_tags
+
+# 添加缺失的導入
+from collections import Counter
 
 # Default colors for tag categories (can be expanded)
 CATEGORY_COLORS = {
@@ -711,6 +714,334 @@ def create_relation():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+# 統計分析API端點
+@app.route('/api/statistics/overview')
+def get_statistics_overview():
+    """獲取系統統計概覽"""
+    try:
+        # 基本統計
+        total_sessions = Session.query.count()
+        total_segments = Segment.query.count()
+        total_tags = Tag.query.count()
+        total_attachments = Attachment.query.count()
+        
+        # 最近30天的活動
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        recent_sessions = Session.query.filter(Session.created_at >= thirty_days_ago).count()
+        recent_segments = Segment.query.filter(Segment.created_at >= thirty_days_ago).count()
+        
+        # 標籤分類統計
+        tag_categories = db.session.query(Tag.category, func.count(Tag.id))\
+            .group_by(Tag.category)\
+            .all()
+        
+        # 段落類型統計
+        segment_types = db.session.query(Segment.segment_type, func.count(Segment.id))\
+            .group_by(Segment.segment_type)\
+            .all()
+        
+        # 活躍度分析 - 按月統計
+        monthly_activity = db.session.query(
+            func.strftime('%Y-%m', Session.created_at).label('month'),
+            func.count(Session.id).label('count')
+        ).filter(Session.created_at >= datetime.utcnow() - timedelta(days=365))\
+         .group_by(func.strftime('%Y-%m', Session.created_at))\
+         .order_by('month')\
+         .all()
+        
+        return jsonify({
+            'basic_stats': {
+                'total_sessions': total_sessions,
+                'total_segments': total_segments,
+                'total_tags': total_tags,
+                'total_attachments': total_attachments,
+                'recent_sessions': recent_sessions,
+                'recent_segments': recent_segments
+            },
+            'tag_categories': [{'category': cat, 'count': count} for cat, count in tag_categories],
+            'segment_types': [{'type': stype, 'count': count} for stype, count in segment_types],
+            'monthly_activity': [{'month': month, 'count': count} for month, count in monthly_activity]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/statistics/tags')
+def get_tag_statistics():
+    """獲取標籤使用統計"""
+    try:
+        # 最常用的標籤
+        popular_tags = db.session.query(
+            Tag.name,
+            Tag.category,
+            Tag.color,
+            func.count(segment_tags.c.tag_id).label('usage_count')
+        ).outerjoin(segment_tags, Tag.id == segment_tags.c.tag_id)\
+         .group_by(Tag.id)\
+         .order_by(func.count(segment_tags.c.tag_id).desc())\
+         .limit(20)\
+         .all()
+        
+        return jsonify({
+            'popular_tags': [{
+                'name': name,
+                'category': category,
+                'color': color,
+                'usage_count': usage_count
+            } for name, category, color, usage_count in popular_tags]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/statistics/learning-progress')
+def get_learning_progress():
+    """獲取學習進度分析"""
+    try:
+        # 按領域統計學習內容
+        domain_progress = db.session.query(
+            Tag.name.label('domain'),
+            func.count(Session.id).label('session_count'),
+            func.count(Segment.id).label('segment_count')
+        ).join(session_tags, Tag.id == session_tags.c.tag_id)\
+         .join(Session, session_tags.c.session_id == Session.id)\
+         .outerjoin(Segment, Session.id == Segment.session_id)\
+         .filter(Tag.category == '領域')\
+         .group_by(Tag.name)\
+         .all()
+        
+        # 學習時間線
+        timeline = db.session.query(
+            func.date(Session.created_at).label('date'),
+            func.count(Session.id).label('sessions'),
+            func.count(Segment.id).label('segments')
+        ).outerjoin(Segment, Session.id == Segment.session_id)\
+         .filter(Session.created_at >= datetime.utcnow() - timedelta(days=90))\
+         .group_by(func.date(Session.created_at))\
+         .order_by('date')\
+         .all()
+        
+        return jsonify({
+            'domain_progress': [{
+                'domain': domain,
+                'session_count': session_count,
+                'segment_count': segment_count
+            } for domain, session_count, segment_count in domain_progress],
+            'timeline': [{
+                'date': str(date),
+                'sessions': sessions,
+                'segments': segments
+            } for date, sessions, segments in timeline]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 批量操作API端點
+@app.route('/api/batch/tags/add', methods=['POST'])
+def batch_add_tags():
+    """批量添加標籤到多個段落"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        segment_ids = data.get('segment_ids', [])
+        tags_data = data.get('tags', [])
+        
+        if not segment_ids or not tags_data:
+            return jsonify({'success': False, 'error': 'Missing segment_ids or tags'}), 400
+        
+        # 驗證段落存在
+        segments = Segment.query.filter(Segment.id.in_(segment_ids)).all()
+        if len(segments) != len(segment_ids):
+            return jsonify({'success': False, 'error': 'Some segments not found'}), 404
+        
+        # 處理標籤
+        processed_tags = []
+        for tag_data in tags_data:
+            if isinstance(tag_data, dict):
+                tag_name = tag_data.get('name')
+                tag_category = tag_data.get('category', '其他')
+                tag_color = tag_data.get('color', CATEGORY_COLORS.get(tag_category, '#6c757d'))
+            else:
+                tag_name = str(tag_data)
+                tag_category = '其他'
+                tag_color = '#6c757d'
+            
+            if tag_name:
+                tag = Tag.query.filter_by(name=tag_name).first()
+                if not tag:
+                    tag = Tag(
+                        name=tag_name,
+                        category=tag_category,
+                        color=tag_color
+                    )
+                    db.session.add(tag)
+                    db.session.flush()
+                processed_tags.append(tag)
+        
+        # 批量添加標籤到段落
+        added_count = 0
+        for segment in segments:
+            for tag in processed_tags:
+                if tag not in segment.tags:
+                    segment.tags.append(tag)
+                    added_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功為 {len(segments)} 個段落添加了 {len(processed_tags)} 個標籤',
+            'added_relations': added_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/batch/segments/delete', methods=['POST'])
+def batch_delete_segments():
+    """批量刪除段落"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        segment_ids = data.get('segment_ids', [])
+        
+        if not segment_ids:
+            return jsonify({'success': False, 'error': 'No segment_ids provided'}), 400
+        
+        # 獲取要刪除的段落
+        segments = Segment.query.filter(Segment.id.in_(segment_ids)).all()
+        
+        if not segments:
+            return jsonify({'success': False, 'error': 'No segments found'}), 404
+        
+        deleted_count = 0
+        for segment in segments:
+            # 刪除相關附件文件
+            for attachment in segment.attachments:
+                try:
+                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], attachment.filename)
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except Exception as e:
+                    print(f"Error deleting file {attachment.filename}: {str(e)}")
+                db.session.delete(attachment)
+            
+            db.session.delete(segment)
+            deleted_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功刪除了 {deleted_count} 個段落',
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/segments')
+def get_all_segments():
+    """獲取所有段落（用於批量操作）"""
+    try:
+        segments = db.session.query(
+            Segment.id,
+            Segment.title,
+            Segment.content,
+            Segment.segment_type,
+            Segment.session_id,
+            Session.title.label('session_title')
+        ).join(Session, Segment.session_id == Session.id)\
+         .order_by(Session.date.desc(), Segment.order_index)\
+         .all()
+        
+        segment_list = []
+        for segment in segments:
+            segment_list.append({
+                'id': segment.id,
+                'title': segment.title or f'段落 {segment.id}',
+                'content': segment.content[:100] if segment.content else '',
+                'segment_type': segment.segment_type,
+                'session_id': segment.session_id,
+                'session_title': segment.session_title
+            })
+        
+        return jsonify(segment_list)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sessions')
+def get_all_sessions():
+    """獲取所有課程（用於批量操作）"""
+    try:
+        sessions = Session.query.order_by(Session.date.desc()).all()
+        
+        session_list = []
+        for session in sessions:
+            session_list.append({
+                'id': session.id,
+                'title': session.title,
+                'overview': session.overview,
+                'date': session.date.isoformat() if session.date else None,
+                'segment_count': session.segments.count(),
+                'tag_count': len(session.tags)
+            })
+        
+        return jsonify(session_list)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/health')
+def health_check():
+    """系統健康檢查"""
+    try:
+        # 檢查資料庫連接
+        db.session.execute(text('SELECT 1'))
+        
+        # 檢查上傳資料夾
+        upload_folder = app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            return jsonify({
+                'status': 'warning',
+                'message': 'Upload folder not found',
+                'timestamp': datetime.utcnow().isoformat()
+            }), 200
+        
+        return jsonify({
+            'status': 'healthy',
+            'message': 'System is running normally',
+            'timestamp': datetime.utcnow().isoformat(),
+            'database': 'connected',
+            'upload_folder': 'accessible'
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 500
+
+# 統計分析和批量操作頁面路由
+@app.route('/statistics')
+def statistics_dashboard():
+    """統計分析頁面"""
+    return render_template('statistics.html')
+
+@app.route('/batch-operations')
+def batch_operations_page():
+    """批量操作頁面"""
+    return render_template('batch_operations.html')
 
 # 錯誤處理
 @app.errorhandler(404)

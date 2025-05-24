@@ -14,14 +14,16 @@ function debounce(func, wait) {
     };
 }
 
-// 標籤自動完成系統 - 修復版本
+// 標籤自動完成系統 - 增強版本
 class TagAutocomplete {
-    constructor(inputElement, onSelect) {
+    constructor(inputElement, onSelect, options = {}) {
         this.input = inputElement;
         this.onSelect = onSelect;
         this.dropdown = null;
         this.tags = [];
         this.selectedIndex = -1;
+        this.categorySelector = options.categorySelector || null;
+        this.autoPrefix = options.autoPrefix !== false; // 預設啟用自動前綴
         
         this.init();
     }
@@ -150,9 +152,76 @@ class TagAutocomplete {
         this.dropdown.style.display = 'none';
         this.selectedIndex = -1;
     }
+    
+    // 新增: 獲取選中的分類
+    getSelectedCategory() {
+        if (this.categorySelector) {
+            const selector = document.getElementById(this.categorySelector);
+            if (selector) {
+                const selectedOption = selector.options[selector.selectedIndex];
+                if (selectedOption) {
+                    // 從選項文字中提取分類名稱，例如 "綠色 (位置)" -> "位置"
+                    const match = selectedOption.textContent.match(/\(([^)]+)\)/);
+                    return match ? match[1] : null;
+                }
+            }
+        }
+        return null;
+    }
+    
+    // 新增: 處理手動輸入的文字，自動添加分類前綴
+    createTagWithAutoPrefix(inputText) {
+        if (!this.autoPrefix) {
+            return {
+                name: inputText,
+                category: '其他',
+                color: '#6c757d'
+            };
+        }
+        
+        const selectedCategory = this.getSelectedCategory();
+        if (selectedCategory) {
+            return {
+                name: inputText,
+                category: selectedCategory,
+                color: this.getCategoryColor(selectedCategory)
+            };
+        }
+        
+        // 如果沒有選中分類，檢查是否已經包含分類前綴
+        if (inputText.includes(':')) {
+            const parts = inputText.split(':', 2);
+            return {
+                name: parts[1].trim(),
+                category: parts[0].trim(),
+                color: this.getCategoryColor(parts[0].trim())
+            };
+        }
+        
+        return {
+            name: inputText,
+            category: '其他',
+            color: '#6c757d'
+        };
+    }
+    
+    // 新增: 根據分類獲取顏色
+    getCategoryColor(category) {
+        const categoryColors = {
+            '手法': '#007bff',
+            '症狀': '#dc3545', 
+            '位置': '#28a745',
+            '施術位置': '#17a2b8',
+            '治療位置': '#ffc107',
+            '領域': '#6610f2',
+            '病因': '#fd7e14',
+            '其他': '#6c757d'
+        };
+        return categoryColors[category] || '#6c757d';
+    }
 }
 
-// 修復後的檔案上傳處理
+// 增強的檔案上傳處理
 class FileUploader {
     constructor(options = {}) {
         this.maxSize = options.maxSize || 100 * 1024 * 1024; // 100MB
@@ -161,11 +230,11 @@ class FileUploader {
         this.onComplete = options.onComplete || (() => {});
         this.onError = options.onError || ((error) => { 
             console.error("File upload error:", error); 
-            alert('上傳失敗: ' + error); 
+            showNotification('上傳失敗: ' + error, 'error'); 
         });
     }
     
-    async upload(file, segmentId) {
+    async upload(file, segmentId, options = {}) {
         if (file.size > this.maxSize) {
             const errorMsg = `檔案大小超過限制 (最大 ${this.maxSize / 1024 / 1024}MB)`;
             this.onError(errorMsg);
@@ -178,17 +247,17 @@ class FileUploader {
         const fileType = file.type;
 
         for (const acceptedType of this.acceptedTypes) {
-            if (acceptedType.startsWith('.')) { // 副檔名檢查
+            if (acceptedType.startsWith('.')) {
                 if (fileName.endsWith(acceptedType)) {
                     typeMatch = true;
                     break;
                 }
-            } else if (acceptedType.endsWith('/*')) { // MIME 主類型檢查 (e.g., 'image/*')
+            } else if (acceptedType.endsWith('/*')) {
                 if (fileType.startsWith(acceptedType.slice(0, -2))) {
                     typeMatch = true;
                     break;
                 }
-            } else { // 精確 MIME 類型檢查
+            } else {
                 if (fileType === acceptedType) {
                     typeMatch = true;
                     break;
@@ -206,6 +275,9 @@ class FileUploader {
         formData.append('file', file);
         if (segmentId) {
             formData.append('segment_id', segmentId);
+        }
+        if (options.description) {
+            formData.append('description', options.description);
         }
         
         try {
@@ -228,7 +300,7 @@ class FileUploader {
                         } catch (e) {
                             const errorMsg = '上傳成功，但解析回應失敗。';
                             this.onError(errorMsg);
-                            reject(new Error(errorMsg)); // Reject with an Error object
+                            reject(new Error(errorMsg));
                         }
                     } else {
                         let errorMsg = '上傳失敗';
@@ -236,28 +308,19 @@ class FileUploader {
                              const errResp = JSON.parse(xhr.responseText);
                              if (errResp && errResp.error) {
                                 errorMsg = `上傳失敗: ${errResp.error}`;
-                             } else if (xhr.responseText) {
-                                // 避免顯示過長的 HTML 錯誤頁面作為訊息
-                                errorMsg = `上傳失敗: ${xhr.responseText.length > 150 ? xhr.responseText.substring(0, 150) + '...' : xhr.responseText}`;
                              }
                         } catch(e) {
-                            // 忽略解析錯誤，使用預設訊息
-                            if (xhr.responseText && xhr.responseText.length > 0 && xhr.responseText.length < 150) {
-                                 errorMsg = `上傳失敗: ${xhr.responseText}`;
-                            } else if (xhr.responseText) {
-                                errorMsg = `上傳失敗，伺服器回應無法解析。`;
-                            }
+                            errorMsg = `上傳失敗 (狀態碼: ${xhr.status})`;
                         }
-                        errorMsg += ` (狀態碼: ${xhr.status})`;
                         this.onError(errorMsg);
-                        reject(new Error(errorMsg)); // Reject with an Error object
+                        reject(new Error(errorMsg));
                     }
                 });
                 
                 xhr.addEventListener('error', () => {
                     const errorMsg = '網路錯誤，無法完成上傳。';
                     this.onError(errorMsg);
-                    reject(new Error(errorMsg)); // Reject with an Error object
+                    reject(new Error(errorMsg));
                 });
                 
                 xhr.open('POST', `${API_BASE}/upload`);
@@ -265,53 +328,309 @@ class FileUploader {
             });
             
         } catch (error) {
-            // 這個 catch 主要捕捉 xhr 物件創建或同步操作的錯誤
-            const catchErrorMsg = error.message || '上傳過程中發生未知客戶端錯誤。';
+            const catchErrorMsg = error.message || '上傳過程中發生未知錯誤。';
             this.onError(catchErrorMsg);
-            // 確保 upload 方法在出錯時回傳 Promise.reject
             return Promise.reject(new Error(catchErrorMsg));
         }
     }
 }
 
-// 關聯圖視覺化 (基礎版本)
-class RelationGraph {
-    constructor(container) {
-        this.container = container;
-        this.nodes = [];
-        this.links = [];
-        this.svg = null;
-        
-        if (!container) {
-            console.error("RelationGraph container is required");
-            // 可以考慮拋出錯誤或設定一個標誌表示實例無效
-            // throw new Error("RelationGraph: container 元素是必需的，但未提供。");
-            return;
-        }
-        
-        this.container.innerHTML = "<p class='text-center text-muted'>關聯圖功能需要 D3.js 圖形庫支援</p>";
+// 新增：通知系統
+class NotificationSystem {
+    constructor() {
+        this.container = null;
+        this.init();
     }
     
-    init(data) {
-        console.log('初始化關聯圖', data);
-        this.nodes = data.nodes || [];
-        this.links = data.links || [];
+    init() {
+        // 創建通知容器
+        this.container = document.createElement('div');
+        this.container.id = 'notification-container';
+        this.container.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            max-width: 400px;
+        `;
+        document.body.appendChild(this.container);
+    }
+    
+    show(message, type = 'info', duration = 5000) {
+        const notification = document.createElement('div');
+        notification.className = `alert alert-${type} alert-dismissible fade show`;
+        notification.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
         
-        // 簡單的文字顯示，直到 D3.js 可用
-        if (this.nodes.length > 0) {
-            let html = '<div class="relation-display"><h6>節點關聯：</h6><ul>';
-            this.nodes.forEach(node => {
-                html += `<li>${node.name} (${node.type || 'unknown'})</li>`;
-            });
-            html += '</ul></div>';
-            this.container.innerHTML = html;
-        } else if (this.links.length > 0) { // 如果只有連結資料也提示
-             this.container.innerHTML = "<p class='text-center text-muted'>收到關聯資料，但無節點可顯示或 D3.js 未載入。</p>";
-        } else {
-            this.container.innerHTML = "<p class='text-center text-muted'>無關聯資料可顯示或 D3.js 未載入。</p>";
+        this.container.appendChild(notification);
+        
+        // 自動隱藏
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, duration);
+        
+        return notification;
+    }
+}
+
+// 全域通知系統實例
+const notificationSystem = new NotificationSystem();
+
+// 簡化的通知函數
+function showNotification(message, type = 'info', duration = 5000) {
+    return notificationSystem.show(message, type, duration);
+}
+
+// 新增：鍵盤快捷鍵管理
+class KeyboardShortcuts {
+    constructor() {
+        this.shortcuts = new Map();
+        this.init();
+    }
+    
+    init() {
+        document.addEventListener('keydown', (e) => this.handleKeydown(e));
+        
+        // 註冊預設快捷鍵
+        this.register('ctrl+s', (e) => {
+            e.preventDefault();
+            this.handleSave();
+        });
+        
+        this.register('ctrl+shift+n', (e) => {
+            e.preventDefault();
+            window.location.href = '/session/new';
+        });
+        
+        this.register('ctrl+shift+s', (e) => {
+            e.preventDefault();
+            window.location.href = '/search';
+        });
+        
+        this.register('ctrl+shift+t', (e) => {
+            e.preventDefault();
+            window.location.href = '/statistics';
+        });
+        
+        this.register('ctrl+shift+b', (e) => {
+            e.preventDefault();
+            window.location.href = '/batch-operations';
+        });
+    }
+    
+    register(shortcut, handler) {
+        this.shortcuts.set(shortcut.toLowerCase(), handler);
+    }
+    
+    handleKeydown(e) {
+        const key = this.getKeyString(e);
+        const handler = this.shortcuts.get(key);
+        
+        if (handler) {
+            handler(e);
+        }
+    }
+    
+    getKeyString(e) {
+        const parts = [];
+        
+        if (e.ctrlKey) parts.push('ctrl');
+        if (e.shiftKey) parts.push('shift');
+        if (e.altKey) parts.push('alt');
+        if (e.metaKey) parts.push('meta');
+        
+        parts.push(e.key.toLowerCase());
+        
+        return parts.join('+');
+    }
+    
+    handleSave() {
+        const activeForm = document.activeElement?.closest('form');
+        if (activeForm) {
+            const submitButton = activeForm.querySelector('button[type="submit"], input[type="submit"]');
+            if (submitButton) {
+                submitButton.click();
+                showNotification('表單已提交', 'success');
+            }
         }
     }
 }
+
+// 新增：本地儲存管理
+class LocalStorageManager {
+    constructor() {
+        this.prefix = 'knowledge_system_';
+    }
+    
+    set(key, value) {
+        try {
+            localStorage.setItem(this.prefix + key, JSON.stringify(value));
+            return true;
+        } catch (error) {
+            console.error('儲存到本地儲存失敗:', error);
+            return false;
+        }
+    }
+    
+    get(key) {
+        try {
+            const item = localStorage.getItem(this.prefix + key);
+            return item ? JSON.parse(item) : null;
+        } catch (error) {
+            console.error('從本地儲存讀取失敗:', error);
+            return null;
+        }
+    }
+    
+    remove(key) {
+        try {
+            localStorage.removeItem(this.prefix + key);
+            return true;
+        } catch (error) {
+            console.error('從本地儲存刪除失敗:', error);
+            return false;
+        }
+    }
+    
+    clear() {
+        try {
+            Object.keys(localStorage)
+                .filter(key => key.startsWith(this.prefix))
+                .forEach(key => localStorage.removeItem(key));
+            return true;
+        } catch (error) {
+            console.error('清空本地儲存失敗:', error);
+            return false;
+        }
+    }
+}
+
+// 全域本地儲存管理器
+const storage = new LocalStorageManager();
+
+// 新增：搜尋歷史管理
+class SearchHistory {
+    constructor() {
+        this.maxHistory = 20;
+        this.storageKey = 'search_history';
+    }
+    
+    add(query) {
+        if (!query || query.trim().length < 2) return;
+        
+        let history = this.getHistory();
+        
+        // 移除重複項
+        history = history.filter(item => item.query !== query.trim());
+        
+        // 添加到開頭
+        history.unshift({
+            query: query.trim(),
+            timestamp: new Date().toISOString()
+        });
+        
+        // 限制數量
+        history = history.slice(0, this.maxHistory);
+        
+        storage.set(this.storageKey, history);
+    }
+    
+    getHistory() {
+        return storage.get(this.storageKey) || [];
+    }
+    
+    clear() {
+        storage.remove(this.storageKey);
+    }
+    
+    remove(query) {
+        let history = this.getHistory();
+        history = history.filter(item => item.query !== query);
+        storage.set(this.storageKey, history);
+    }
+}
+
+// 全域搜尋歷史管理器
+const searchHistory = new SearchHistory();
+
+// 新增：性能監控
+class PerformanceMonitor {
+    constructor() {
+        this.metrics = {
+            pageLoadTime: 0,
+            apiCalls: [],
+            userActions: []
+        };
+        
+        this.init();
+    }
+    
+    init() {
+        // 監控頁面載入時間
+        window.addEventListener('load', () => {
+            this.metrics.pageLoadTime = performance.now();
+            console.log(`頁面載入時間: ${this.metrics.pageLoadTime.toFixed(2)}ms`);
+        });
+        
+        // 監控 fetch 請求
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+            const startTime = performance.now();
+            try {
+                const response = await originalFetch(...args);
+                const endTime = performance.now();
+                
+                this.metrics.apiCalls.push({
+                    url: args[0],
+                    duration: endTime - startTime,
+                    status: response.status,
+                    timestamp: new Date().toISOString()
+                });
+                
+                return response;
+            } catch (error) {
+                const endTime = performance.now();
+                this.metrics.apiCalls.push({
+                    url: args[0],
+                    duration: endTime - startTime,
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+                throw error;
+            }
+        };
+    }
+    
+    recordUserAction(action, details = {}) {
+        this.metrics.userActions.push({
+            action,
+            details,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    getMetrics() {
+        return this.metrics;
+    }
+    
+    exportMetrics() {
+        const data = JSON.stringify(this.metrics, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `performance_metrics_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+}
+
+// 全域性能監控器
+const performanceMonitor = new PerformanceMonitor();
 
 // 全域初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -323,46 +642,61 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // 初始化鍵盤快捷鍵
+    new KeyboardShortcuts();
+    
     // 自動儲存草稿功能
     const sessionForm = document.getElementById('sessionForm');
     if (sessionForm) {
-        const draftData = loadDraft('sessionForm');
-        if (draftData) {
-            for (const key in draftData) {
-                if (Object.prototype.hasOwnProperty.call(draftData, key)) { // 確保是自身屬性
-                    const element = sessionForm.elements[key];
-                    if (element) {
-                        // 對於 checkbox 和 radio button 需要特殊處理
-                        if (element.type === 'checkbox') {
-                            element.checked = draftData[key];
-                        } else if (element.type === 'radio' && element.value === draftData[key]) {
-                            element.checked = true;
-                        } else {
-                            element.value = draftData[key];
-                        }
-                    }
+        setupAutoSave(sessionForm, 'sessionForm');
+    }
+    
+    // 初始化搜尋功能
+    initializeSearchFeatures();
+    
+    // 顯示歡迎提示
+    showWelcomeMessage();
+});
+
+// 設置自動儲存
+function setupAutoSave(form, formId) {
+    const draftData = loadDraft(formId);
+    if (draftData) {
+        populateFormWithDraft(form, draftData);
+    }
+
+    const inputs = form.querySelectorAll('input, textarea, select');
+    inputs.forEach(input => {
+        const eventType = (input.type === 'checkbox' || input.type === 'radio' || input.tagName === 'SELECT') ? 'change' : 'input';
+        input.addEventListener(eventType, debounce(() => {
+            saveDraft(form, formId);
+        }, 1000));
+    });
+}
+
+function populateFormWithDraft(form, draftData) {
+    for (const key in draftData) {
+        if (Object.prototype.hasOwnProperty.call(draftData, key)) {
+            const element = form.elements[key];
+            if (element) {
+                if (element.type === 'checkbox') {
+                    element.checked = draftData[key];
+                } else if (element.type === 'radio' && element.value === draftData[key]) {
+                    element.checked = true;
+                } else {
+                    element.value = draftData[key];
                 }
             }
         }
-
-        const inputs = sessionForm.querySelectorAll('input, textarea, select'); // 包含 select
-        inputs.forEach(input => {
-            const eventType = (input.type === 'checkbox' || input.type === 'radio' || input.tagName === 'SELECT') ? 'change' : 'input';
-            input.addEventListener(eventType, debounce(() => {
-                saveDraft(sessionForm, 'sessionForm');
-            }, 1000));
-        });
     }
-});
+}
 
 // 草稿管理函數
 function saveDraft(form, formId) {
     if (!form || !formId) return;
     
     try {
-        const formData = new FormData(form);
         const data = {};
-        // FormData.entries() 可能不包含未選中的 checkbox，需要手動處理
         form.querySelectorAll('input, textarea, select').forEach(el => {
             if (el.name) {
                 if (el.type === 'checkbox') {
@@ -376,37 +710,97 @@ function saveDraft(form, formId) {
                 }
             }
         });
-        localStorage.setItem(`draft_${formId}`, JSON.stringify(data));
-        console.log(`Draft saved for ${formId}`);
+        
+        storage.set(`draft_${formId}`, data);
+        console.log(`草稿已儲存: ${formId}`);
     } catch (error) {
-        console.error('保存草稿失敗:', error);
-        // 可以考慮更友善的錯誤提示，例如通知使用者草稿保存失敗
+        console.error('儲存草稿失敗:', error);
     }
 }
 
 function loadDraft(formId) {
     if (!formId) return null;
-    try {
-        const draft = localStorage.getItem(`draft_${formId}`);
-        if (draft) {
-            console.log(`Draft loaded for ${formId}`);
-            return JSON.parse(draft);
-        }
-    } catch (error) {
-        console.error('載入草稿失敗:', error);
-        // 如果解析失敗，可能草稿已損壞，可以考慮清除它
-        // localStorage.removeItem(`draft_${formId}`);
-    }
-    return null;
+    return storage.get(`draft_${formId}`);
 }
 
 function clearDraft(formId) {
     if (!formId) return;
-    try {
-        localStorage.removeItem(`draft_${formId}`);
-        console.log(`Draft cleared for ${formId}`);
-    } catch (error) {
-        console.error('清除草稿失敗:', error);
+    storage.remove(`draft_${formId}`);
+    console.log(`草稿已清除: ${formId}`);
+}
+
+// 初始化搜尋功能
+function initializeSearchFeatures() {
+    // 設置搜尋歷史
+    const searchInputs = document.querySelectorAll('input[type="search"], .search-input');
+    searchInputs.forEach(input => {
+        input.addEventListener('focus', () => showSearchHistory(input));
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const query = input.value.trim();
+                if (query) {
+                    searchHistory.add(query);
+                }
+            }
+        });
+    });
+}
+
+function showSearchHistory(input) {
+    const history = searchHistory.getHistory();
+    if (history.length === 0) return;
+    
+    // 創建歷史下拉選單
+    let dropdown = input.parentElement.querySelector('.search-history-dropdown');
+    if (!dropdown) {
+        dropdown = document.createElement('div');
+        dropdown.className = 'search-history-dropdown autocomplete-dropdown';
+        input.parentElement.appendChild(dropdown);
+    }
+    
+    dropdown.innerHTML = history.slice(0, 5).map(item => `
+        <div class="autocomplete-item" onclick="selectSearchHistory('${item.query}', this)">
+            <i class="fas fa-history text-muted me-2"></i>
+            ${item.query}
+            <small class="text-muted ms-auto">${new Date(item.timestamp).toLocaleDateString()}</small>
+        </div>
+    `).join('');
+    
+    dropdown.style.display = 'block';
+    
+    // 點擊外部隱藏
+    setTimeout(() => {
+        document.addEventListener('click', function hideHistory(e) {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                document.removeEventListener('click', hideHistory);
+            }
+        });
+    }, 100);
+}
+
+function selectSearchHistory(query, element) {
+    const input = element.closest('.search-history-dropdown').previousElementSibling;
+    input.value = query;
+    element.parentElement.style.display = 'none';
+    
+    // 觸發搜尋
+    const searchEvent = new Event('input', { bubbles: true });
+    input.dispatchEvent(searchEvent);
+}
+
+// 顯示歡迎訊息
+function showWelcomeMessage() {
+    const hasSeenWelcome = storage.get('has_seen_welcome');
+    if (!hasSeenWelcome) {
+        setTimeout(() => {
+            showNotification(
+                '歡迎使用知識管理系統！使用 Ctrl+Shift+? 查看快捷鍵', 
+                'info', 
+                8000
+            );
+            storage.set('has_seen_welcome', true);
+        }, 1000);
     }
 }
 
@@ -414,13 +808,15 @@ function clearDraft(formId) {
 async function exportSession(sessionId, format = 'json') {
     if (!sessionId) {
         console.error('匯出失敗: 未提供 sessionId');
-        alert('匯出失敗: 未提供 session ID。');
+        showNotification('匯出失敗: 未提供 session ID。', 'error');
         return;
     }
+    
     try {
+        showNotification('正在準備匯出...', 'info');
+        
         const response = await fetch(`${API_BASE}/api/session/${sessionId}/export?format=${format}`);
         if (!response.ok) {
-            // 嘗試解析錯誤回應
             let errorDetail = response.statusText;
             try {
                 const errorJson = await response.json();
@@ -438,7 +834,6 @@ async function exportSession(sessionId, format = 'json') {
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = url;
-        // 確保檔名安全
         const safeSessionId = String(sessionId).replace(/[^a-z0-9_.-]/gi, '_');
         const safeFormat = String(format).replace(/[^a-z0-9_.-]/gi, '_');
         a.download = `session_${safeSessionId}.${safeFormat}`;
@@ -450,65 +845,13 @@ async function exportSession(sessionId, format = 'json') {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
+        showNotification('匯出完成！', 'success');
+        
     } catch (error) {
         console.error('匯出操作失敗:', error);
-        alert(error.message || '匯出失敗，請重試。');
+        showNotification(error.message || '匯出失敗，請重試。', 'error');
     }
 }
-
-// 快捷鍵支援
-document.addEventListener('keydown', function(e) {
-    // Ctrl/Cmd + S: 儲存
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        // 檢查是否在輸入欄位中，避免與瀏覽器本身的儲存快捷鍵衝突
-        const activeElement = document.activeElement;
-        if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable)) {
-            e.preventDefault();
-            const activeForm = activeElement.closest('form');
-            if (activeForm) {
-                // 優先觸發 'submit' 事件而非 click，以便執行表單驗證
-                if (typeof activeForm.requestSubmit === 'function') {
-                    activeForm.requestSubmit();
-                } else {
-                    const submitButton = activeForm.querySelector('button[type="submit"], input[type="submit"]');
-                    if (submitButton) {
-                        submitButton.click();
-                    } else {
-                        // 如果沒有明確的 submit button，嘗試觸發 submit 事件
-                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                        activeForm.dispatchEvent(submitEvent);
-                    }
-                }
-                 console.log('Ctrl+S: 嘗試提交表單');
-            } else {
-                console.log('Ctrl+S: 未找到活動表單');
-            }
-        }
-    }
-    
-    // Ctrl/Cmd + Enter: 快速提交
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        const activeElement = document.activeElement;
-        if (activeElement && (activeElement.tagName === 'TEXTAREA' || (activeElement.tagName === 'INPUT' && activeElement.type === 'text'))) {
-            const form = activeElement.closest('form');
-            if (form) {
-                e.preventDefault(); // 阻止 Enter 的預設行為 (例如換行)
-                if (typeof form.requestSubmit === 'function') {
-                    form.requestSubmit();
-                } else {
-                    const submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
-                    if (submitButton) {
-                        submitButton.click();
-                    } else {
-                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                        form.dispatchEvent(submitEvent);
-                    }
-                }
-                console.log('Ctrl+Enter: 嘗試提交表單');
-            }
-        }
-    }
-});
 
 // 列印優化
 window.addEventListener('beforeprint', function() {
@@ -517,10 +860,9 @@ window.addEventListener('beforeprint', function() {
     document.querySelectorAll('.collapse').forEach(el => {
         if (!el.classList.contains('show')) {
             el.classList.add('show');
-            el.dataset.printExpanded = 'true'; // 標記為由列印展開
+            el.dataset.printExpanded = 'true';
         }
     });
-    // 可以在此處添加更多列印特定樣式或操作
 });
 
 window.addEventListener('afterprint', function() {
@@ -530,5 +872,22 @@ window.addEventListener('afterprint', function() {
         el.classList.remove('show');
         el.removeAttribute('data-print-expanded');
     });
-    // 可以在此處移除列印特定樣式或操作
 });
+
+// 導出全域函數和類別供其他腳本使用
+window.KnowledgeSystem = {
+    TagAutocomplete,
+    FileUploader,
+    NotificationSystem,
+    KeyboardShortcuts,
+    LocalStorageManager,
+    SearchHistory,
+    PerformanceMonitor,
+    // 工具函數
+    showNotification,
+    exportSession,
+    saveDraft,
+    loadDraft,
+    clearDraft,
+    debounce
+};

@@ -383,16 +383,24 @@ function openSegmentModal(segmentId = null) {
                 updateTagDisplay();
             }
             newInput.value = '';
+        }, {
+            categorySelector: 'tagColorPicker',
+            autoPrefix: true
         });
         
-        // 添加 Enter 鍵處理
+        // 添加 Enter 鍵處理，使用新的自動前綴功能
         newInput.addEventListener('keypress', function(event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 setTimeout(() => {
                     const inputText = newInput.value.trim();
                     if (inputText) {
-                        addCustomTagFromText(inputText);
+                        const newTag = segmentTagAutocomplete.createTagWithAutoPrefix(inputText);
+                        if (!selectedTags.find(st => st.name === newTag.name && st.category === newTag.category)) {
+                            selectedTags.push(newTag);
+                            updateTagDisplay();
+                        }
+                        newInput.value = '';
                     }
                 }, 50);
             }
