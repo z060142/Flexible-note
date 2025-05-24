@@ -22,3 +22,5 @@ instance/
 uploads/
 *.db
 .env
+
+chroma_db/

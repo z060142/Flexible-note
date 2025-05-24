@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
 from flask_migrate import Migrate
 from werkzeug.utils import secure_filename
@@ -11,6 +12,18 @@ from models import db, Session, Segment, Tag, Attachment, QueryRelation, session
 
 # 添加缺失的導入
 from collections import Counter
+
+# 配置日誌
+logger = logging.getLogger(__name__)
+
+# 導入向量搜尋服務
+try:
+    from vector_service import get_chroma_manager, get_hybrid_search_engine, initialize_vector_db
+    VECTOR_SEARCH_ENABLED = True
+except ImportError as e:
+    print(f"向量搜尋服務導入失敗: {e}")
+    print("將使用傳統搜尋功能，請安裝必要的依賴：chromadb, sentence-transformers")
+    VECTOR_SEARCH_ENABLED = False
 
 # Default colors for tag categories (can be expanded)
 CATEGORY_COLORS = {
@@ -62,6 +75,12 @@ def session_detail(session_id):
     segments = session.segments.order_by(Segment.order_index).all()
     return render_template('session_detail.html', session=session, segments=segments, category_colors=CATEGORY_COLORS)
 
+# 語義搜尋頁面
+@app.route('/semantic-search')
+def semantic_search_page():
+    """語義搜尋頁面"""
+    return render_template('semantic_search.html')
+
 # 新增課程
 @app.route('/session/new', methods=['GET', 'POST'])
 def new_session():
@@ -93,6 +112,14 @@ def new_session():
             
             db.session.add(session)
             db.session.commit()
+            
+            # 自動同步到向量數據庫（如果啟用）
+            if VECTOR_SEARCH_ENABLED:
+                try:
+                    chroma_manager = get_chroma_manager()
+                    chroma_manager.add_session(session)
+                except Exception as e:
+                    logger.warning(f"向量數據庫同步失敗: {e}")
             
             return jsonify({'success': True, 'session_id': session.id})
             
@@ -140,6 +167,15 @@ def edit_session(session_id):
                     session.tags.append(tag)
                 
             db.session.commit()
+            
+            # 自動同步到向量數據庫（如果啟用）
+            if VECTOR_SEARCH_ENABLED:
+                try:
+                    chroma_manager = get_chroma_manager()
+                    chroma_manager.add_session(session)
+                except Exception as e:
+                    logger.warning(f"向量數據庫同步失敗: {e}")
+            
             return jsonify({'success': True, 'session_id': session.id})
             
         except Exception as e:
@@ -168,15 +204,20 @@ def delete_session(session_id):
                 db.session.delete(attachment)
             db.session.delete(segment)
         
+        # 從向量數據庫中刪除（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                chroma_manager.delete_session(session_id)
+            except Exception as e:
+                logger.warning(f"向量數據庫刪除失敗: {e}")
+        
         db.session.delete(session)
         db.session.commit()
-        # Assuming you'll have flash messages set up in your base template
-        # flash('課程已成功刪除。', 'success') 
         return redirect(url_for('index'))
     except Exception as e:
         db.session.rollback()
-        # flash(f'刪除課程時發生錯誤: {str(e)}', 'danger')
-        print(f"Error deleting session {session_id}: {str(e)}") # Log error
+        print(f"Error deleting session {session_id}: {str(e)}")
         return redirect(url_for('session_detail', session_id=session_id))
 
 # 新增段落
@@ -217,6 +258,15 @@ def add_segment(session_id):
         
         db.session.add(segment)
         db.session.commit()
+        
+        # 自動同步到向量數據庫（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                chroma_manager.add_segment(segment)
+            except Exception as e:
+                logger.warning(f"向量數據庫同步失敗: {e}")
+        
         return jsonify({'success': True, 'segment_id': segment.id})
         
     except Exception as e:
@@ -227,22 +277,11 @@ def add_segment(session_id):
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
-        print("=== 文件上傳請求開始 ===")
-        print(f"請求方法: {request.method}")
-        print(f"請求文件: {request.files}")
-        print(f"請求表單: {request.form}")
-        
         if 'file' not in request.files:
-            print("錯誤: 請求中沒有文件部分")
             return jsonify({'error': 'No file part'}), 400
             
         file = request.files['file']
-        print(f"文件名: {file.filename}")
-        print(f"文件大小: {len(file.read())} bytes")
-        file.seek(0)  # 重置文件指針
-        
         if file.filename == '':
-            print("錯誤: 沒有選擇文件")
             return jsonify({'error': 'No selected file'}), 400
         
         if file and allowed_file(file.filename):
@@ -250,27 +289,9 @@ def upload_file():
             filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(original_filename)}"
             upload_folder_path = app.config['UPLOAD_FOLDER']
             
-            print(f"原始文件名: {original_filename}")
-            print(f"處理後文件名: {filename}")
-            print(f"上傳資料夾: {upload_folder_path}")
-            
-            # 確保上傳資料夾存在
             ensure_upload_folder()
-            
             file_path_on_disk = os.path.join(upload_folder_path, filename)
-            print(f"完整文件路徑: {file_path_on_disk}")
-            
-            # 保存文件
             file.save(file_path_on_disk)
-            print(f"文件已保存到: {file_path_on_disk}")
-            
-            # 驗證文件是否真的被保存
-            if os.path.exists(file_path_on_disk):
-                file_size = os.path.getsize(file_path_on_disk)
-                print(f"文件保存成功，大小: {file_size} bytes")
-            else:
-                print("錯誤: 文件保存失敗，文件不存在")
-                return jsonify({'error': 'File save failed'}), 500
             
             ext = filename.rsplit('.', 1)[1].lower()
             file_type = 'document' 
@@ -278,8 +299,6 @@ def upload_file():
                 file_type = 'image'
             elif ext in ['mp4', 'avi']: 
                 file_type = 'video'
-            
-            print(f"文件類型: {file_type}")
             
             attachment = Attachment(
                 filename=filename, 
@@ -289,25 +308,16 @@ def upload_file():
                 description=request.form.get('description', '')
             )
             db.session.add(attachment)
-            print(f"附件對象已創建: {attachment}")
             
             segment_id = request.form.get('segment_id', type=int)
-            print(f"段落ID: {segment_id}")
-            
             processed_segment_id = None 
             if segment_id is not None: 
                 segment = Segment.query.get(segment_id)
                 if segment:
                     segment.attachments.append(attachment)
                     processed_segment_id = segment.id
-                    print(f"附件已關聯到段落: {segment_id}")
-                else:
-                    print(f"警告: 找不到段落 ID {segment_id}")
-            else:
-                print("注意: 沒有提供段落ID，附件將獨立保存")
                     
             db.session.commit() 
-            print("資料庫提交成功")
             
             response_data = {
                 'success': True, 
@@ -319,18 +329,12 @@ def upload_file():
             if processed_segment_id is not None: 
                 response_data['segment_id'] = processed_segment_id
                 
-            print(f"回應數據: {response_data}")
-            print("=== 文件上傳請求完成 ===")
             return jsonify(response_data)
         else:
-            print(f"錯誤: 不允許的文件類型 {file.filename}")
             return jsonify({'error': 'File type not allowed'}), 400
         
     except Exception as e:
         db.session.rollback()
-        print(f"文件上傳異常: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # Route to serve uploaded files directly
@@ -347,7 +351,8 @@ def serve_uploads(filename):
 @app.route('/attachment/<int:attachment_id>')
 def serve_attachment(attachment_id):
     attachment = Attachment.query.get(attachment_id)
-    if not attachment: return "Attachment not found", 404
+    if not attachment: 
+        return "Attachment not found", 404
     return send_from_directory(app.config['UPLOAD_FOLDER'], attachment.filename, as_attachment=False)
 
 # Tag Management Page
@@ -484,6 +489,15 @@ def update_segment_detail(segment_id):
                     segment.tags.append(tag)
                     
         db.session.commit()
+        
+        # 自動同步到向量數據庫（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                chroma_manager.add_segment(segment)
+            except Exception as e:
+                logger.warning(f"向量數據庫同步失敗: {e}")
+        
         return jsonify({'success': True, 'segment_id': segment.id})
         
     except Exception as e:
@@ -496,7 +510,15 @@ def delete_segment_detail(segment_id):
         segment = Segment.query.get(segment_id)
         if not segment: 
             return jsonify({'error': 'Segment not found'}), 404
-            
+        
+        # 從向量數據庫中刪除（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                chroma_manager.delete_segment(segment_id)
+            except Exception as e:
+                logger.warning(f"向量數據庫刪除失敗: {e}")
+                
         db.session.delete(segment)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Segment deleted'})
@@ -549,6 +571,140 @@ def export_session_json(session_id):
         response = jsonify(session_export_data)
         response.headers['Content-Disposition'] = f"attachment; filename=session_{session.id}_export.json"
         return response
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 向量數據庫狀態 API
+@app.route('/api/vector/status')
+def vector_status():
+    """向量數據庫狀態檢查"""
+    if not VECTOR_SEARCH_ENABLED:
+        return jsonify({'enabled': False, 'message': 'Vector search dependencies not installed'})
+    
+    try:
+        chroma_manager = get_chroma_manager()
+        stats = chroma_manager.get_collection_stats()
+        return jsonify({
+            'enabled': True,
+            'status': 'healthy',
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({
+            'enabled': True,
+            'status': 'error',
+            'error': str(e)
+        })
+
+# 數據同步 API
+@app.route('/api/vector/sync', methods=['POST'])
+def sync_vector_db():
+    """同步數據到向量數據庫"""
+    if not VECTOR_SEARCH_ENABLED:
+        return jsonify({'success': False, 'error': 'Vector search not enabled'}), 503
+    
+    try:
+        from vector_service import sync_existing_data
+        sync_existing_data()
+        return jsonify({'success': True, 'message': '數據同步完成'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 新增語義搜尋API端點
+@app.route('/api/search/semantic', methods=['POST'])
+def semantic_search():
+    """語義搜尋 API"""
+    if not VECTOR_SEARCH_ENABLED:
+        return jsonify({'error': 'Vector search is not enabled. Please install required dependencies.'}), 503
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'results': [], 'message': 'No search data provided'})
+        
+        query = data.get('query', '')
+        search_type = data.get('search_type', 'hybrid')  # semantic, keyword, hybrid
+        limit = data.get('limit', 10)
+        content_type = data.get('content_type')  # session, segment, or None for all
+        
+        if not query.strip():
+            return jsonify({'results': [], 'message': 'Please provide a search query'})
+        
+        # 使用混合搜尋引擎
+        search_engine = get_hybrid_search_engine()
+        results = search_engine.search(query, search_type, limit)
+        
+        # 轉換結果格式以符合前端預期
+        formatted_results = []
+        for result in results:
+            formatted_result = {
+                'search_type': result['type'],
+                'score': result['score'],
+                'content_type': result['content_type'],
+                'title': result['title'],
+                'content_preview': result['content'][:200] + '...' if len(result['content']) > 200 else result['content'],
+                'metadata': result['metadata']
+            }
+            
+            # 根據內容類型添加特定字段
+            if result['content_type'] == 'session':
+                formatted_result['session_id'] = result['metadata'].get('session_id')
+                formatted_result['session_title'] = result['title']
+            elif result['content_type'] == 'segment':
+                formatted_result['segment_id'] = result['metadata'].get('segment_id')
+                formatted_result['session_id'] = result['metadata'].get('session_id')
+                formatted_result['session_title'] = result['metadata'].get('session_title', '')
+                formatted_result['segment_title'] = result['title']
+            
+            formatted_results.append(formatted_result)
+        
+        return jsonify({
+            'results': formatted_results,
+            'query': query,
+            'search_type': search_type,
+            'total_count': len(formatted_results)
+        })
+        
+    except Exception as e:
+        logger.error(f"語義搜尋失敗: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/search/suggestions', methods=['GET'])
+def search_suggestions():
+    """搜尋建議 API"""
+    try:
+        query = request.args.get('q', '').strip()
+        if len(query) < 2:
+            return jsonify([])
+        
+        # 基於標籤名稱的建議
+        tag_suggestions = Tag.query.filter(
+            Tag.name.contains(query)
+        ).limit(5).all()
+        
+        suggestions = []
+        for tag in tag_suggestions:
+            suggestions.append({
+                'text': tag.name,
+                'type': 'tag',
+                'category': tag.category,
+                'color': tag.color
+            })
+        
+        # 基於課程標題的建議
+        session_suggestions = Session.query.filter(
+            Session.title.contains(query)
+        ).limit(3).all()
+        
+        for session in session_suggestions:
+            suggestions.append({
+                'text': session.title,
+                'type': 'session',
+                'id': session.id
+            })
+        
+        return jsonify(suggestions)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1056,145 +1212,4 @@ def internal_error(error):
 # 測試上傳頁面 (僅在開發模式下)
 @app.route('/test-upload')
 def test_upload():
-    return '''
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文件上傳測試</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <div class="container mt-5">
-        <h1>文件上傳測試</h1>
-        
-        <div class="card">
-            <div class="card-body">
-                <form id="testUploadForm">
-                    <div class="mb-3">
-                        <label for="testFile" class="form-label">選擇文件</label>
-                        <input type="file" class="form-control" id="testFile" multiple>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="testSegmentId" class="form-label">段落ID（可選）</label>
-                        <input type="number" class="form-control" id="testSegmentId" placeholder="輸入段落ID">
-                    </div>
-                    
-                    <button type="button" class="btn btn-primary" onclick="testUpload()">上傳測試</button>
-                </form>
-                
-                <div id="uploadProgress" class="progress mt-3" style="display: none;">
-                    <div class="progress-bar" role="progressbar" style="width: 0%">0%</div>
-                </div>
-                
-                <div id="uploadResults" class="mt-3"></div>
-            </div>
-        </div>
-        
-        <div class="mt-3">
-            <a href="/" class="btn btn-secondary">返回首頁</a>
-        </div>
-    </div>
-
-    <script>
-        async function testUpload() {
-            const fileInput = document.getElementById('testFile');
-            const segmentIdInput = document.getElementById('testSegmentId');
-            const resultsDiv = document.getElementById('uploadResults');
-            
-            if (!fileInput.files.length) {
-                alert('請先選擇文件');
-                return;
-            }
-            
-            resultsDiv.innerHTML = '<div class="alert alert-info">開始上傳...</div>';
-            
-            for (let i = 0; i < fileInput.files.length; i++) {
-                const file = fileInput.files[i];
-                console.log(`測試上傳文件 ${i + 1}:`, file.name);
-                
-                try {
-                    const result = await uploadFile(file, segmentIdInput.value || null);
-                    resultsDiv.innerHTML += `<div class="alert alert-success">
-                        文件 "${file.name}" 上傳成功！<br>
-                        附件ID: ${result.attachment_id}<br>
-                        文件路徑: ${result.file_path}
-                    </div>`;
-                } catch (error) {
-                    console.error('上傳失敗:', error);
-                    resultsDiv.innerHTML += `<div class="alert alert-danger">
-                        文件 "${file.name}" 上傳失敗: ${error.message}
-                    </div>`;
-                }
-            }
-        }
-        
-        function uploadFile(file, segmentId) {
-            return new Promise((resolve, reject) => {
-                const formData = new FormData();
-                formData.append('file', file);
-                if (segmentId) {
-                    formData.append('segment_id', segmentId);
-                }
-                
-                console.log('上傳文件:', file.name, '大小:', file.size, '段落ID:', segmentId);
-                
-                const xhr = new XMLHttpRequest();
-                
-                xhr.upload.addEventListener('progress', (e) => {
-                    if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        const progressBar = document.querySelector('#uploadProgress .progress-bar');
-                        if (progressBar) {
-                            progressBar.style.width = percentComplete + '%';
-                            progressBar.textContent = Math.round(percentComplete) + '%';
-                            document.getElementById('uploadProgress').style.display = 'block';
-                        }
-                    }
-                });
-                
-                xhr.addEventListener('load', () => {
-                    console.log('上傳回應狀態:', xhr.status);
-                    console.log('上傳回應內容:', xhr.responseText);
-                    
-                    if (xhr.status === 200) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            if (response.success) {
-                                resolve(response);
-                            } else {
-                                reject(new Error(response.error || '上傳失敗'));
-                            }
-                        } catch (e) {
-                            reject(new Error('解析回應失敗: ' + e.message));
-                        }
-                    } else {
-                        reject(new Error(`HTTP錯誤: ${xhr.status}`));
-                    }
-                    
-                    setTimeout(() => {
-                        document.getElementById('uploadProgress').style.display = 'none';
-                    }, 2000);
-                });
-                
-                xhr.addEventListener('error', () => {
-                    reject(new Error('網路錯誤'));
-                });
-                
-                xhr.open('POST', '/upload');
-                xhr.send(formData);
-            });
-        }
-    </script>
-</body>
-</html>
-    '''
-
-# 移除原來的主程式入口點，因為我們現在用 main.py 來啟動
-# if __name__ == '__main__':
-#     with app.app_context():
-#         db.create_all()
-#         ensure_upload_folder()
-#     app.run(debug=True)
+    return render_template('test_upload.html')
