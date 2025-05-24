@@ -10,7 +10,11 @@ dependencies = [
     "flask-migrate>=4.0.5",
     "python-dotenv>=1.0.0",
     "pillow>=10.2.0",
+    "pywebview>=5.0.0",
 ]
 
 [tool.uv]
 dev-dependencies = []
+
+[project.scripts]
+knowledge-system = "knowledge_system.main:main"

@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 from sqlalchemy import func, and_ 
 
-# 添加这个重要的导入
+# 添加這個重要的導入
 from models import db, Session, Segment, Tag, Attachment, QueryRelation
 
 # Default colors for tag categories (can be expanded)
@@ -38,6 +38,13 @@ migrate = Migrate(app, db)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def ensure_upload_folder():
+    """確保上傳資料夾存在"""
+    upload_folder = app.config['UPLOAD_FOLDER']
+    if not os.path.exists(upload_folder):
+        os.makedirs(upload_folder, exist_ok=True)
+        print(f"創建上傳資料夾: {upload_folder}")
 
 # 首頁 - 顯示所有課程
 @app.route('/')
@@ -227,7 +234,7 @@ def upload_file():
             upload_folder_path = app.config['UPLOAD_FOLDER']
             
             # 確保上傳資料夾存在
-            os.makedirs(upload_folder_path, exist_ok=True)
+            ensure_upload_folder()
             
             file_path_on_disk = os.path.join(upload_folder_path, filename)
             file.save(file_path_on_disk)
@@ -665,8 +672,9 @@ def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        ensure_upload_folder()
-    app.run(debug=True)
+# 移除原來的主程式入口點，因為我們現在用 main.py 來啟動
+# if __name__ == '__main__':
+#     with app.app_context():
+#         db.create_all()
+#         ensure_upload_folder()
+#     app.run(debug=True)
