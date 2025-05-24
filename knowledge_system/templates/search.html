@@ -217,12 +217,10 @@ function selectQueryType(type, event) {
     document.querySelectorAll('.query-type-card').forEach(card => {
         card.classList.remove('active');
     });
-    // Ensure event is passed and currentTarget is valid
+    
     if (event && event.currentTarget) {
         event.currentTarget.classList.add('active');
     } else {
-        // Fallback if event or currentTarget is not available
-        // This might happen if called programmatically without an event
         const selectedCard = document.querySelector(`.query-type-card[onclick*="${type}"]`);
         if (selectedCard) {
             selectedCard.classList.add('active');
@@ -234,7 +232,11 @@ function selectQueryType(type, event) {
     document.querySelectorAll('.query-form').forEach(form => {
         form.style.display = 'none';
     });
-    document.getElementById(`${type}_builder`).style.display = 'block';
+    
+    const builderElement = document.getElementById(`${type}_builder`);
+    if (builderElement) {
+        builderElement.style.display = 'block';
+    }
     
     // 更新標題
     const titles = {
@@ -243,7 +245,11 @@ function selectQueryType(type, event) {
         'method_analysis': '手法分析查詢',
         'relation_map': '關聯圖譜查詢'
     };
-    document.getElementById('queryTitle').textContent = titles[type];
+    
+    const titleElement = document.getElementById('queryTitle');
+    if (titleElement) {
+        titleElement.textContent = titles[type] || '建構查詢';
+    }
     
     // 隱藏之前的結果
     document.getElementById('queryResults').style.display = 'none';
@@ -252,6 +258,11 @@ function selectQueryType(type, event) {
 
 // 執行查詢
 async function executeQuery() {
+    if (!currentQueryType) {
+        alert('請先選擇查詢類型');
+        return;
+    }
+    
     const queryData = buildQueryData();
     
     try {
@@ -263,11 +274,16 @@ async function executeQuery() {
             body: JSON.stringify(queryData)
         });
         
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const results = await response.json();
         displayResults(results);
+        
     } catch (error) {
         console.error('查詢失敗:', error);
-        alert('查詢失敗，請重試');
+        alert('查詢失敗，請重試: ' + error.message);
     }
 }
 
@@ -277,22 +293,34 @@ function buildQueryData() {
         query_type: currentQueryType
     };
     
-    switch(currentQueryType) {
-        case 'symptom_to_cause':
-            data.symptom_tags = selectedTags.symptoms.map(tag => tag.name); // Assuming selectedTags.symptoms contains tag objects
-            data.location = document.getElementById('symptomLocation').value;
-            break;
-        case 'cause_to_treatment':
-            data.cause_tags = selectedTags.causes.map(tag => tag.name); // Assuming selectedTags.causes contains tag objects
-            data.preferred_domain = document.getElementById('preferredDomain').value;
-            break;
-        case 'method_analysis':
-            data.method_name = document.getElementById('methodInput').value;
-            break;
-        case 'relation_map':
-            data.start_point = document.getElementById('startPoint').value;
-            data.depth = parseInt(document.getElementById('exploreDepth').value);
-            break;
+    try {
+        switch(currentQueryType) {
+            case 'symptom_to_cause':
+                data.symptom_tags = selectedTags.symptoms.map(tag => tag.name);
+                const locationInput = document.getElementById('symptomLocation');
+                data.location = locationInput ? locationInput.value : '';
+                break;
+                
+            case 'cause_to_treatment':
+                data.cause_tags = selectedTags.causes.map(tag => tag.name);
+                const domainSelect = document.getElementById('preferredDomain');
+                data.preferred_domain = domainSelect ? domainSelect.value : '';
+                break;
+                
+            case 'method_analysis':
+                const methodInput = document.getElementById('methodInput');
+                data.method_name = methodInput ? methodInput.value : '';
+                break;
+                
+            case 'relation_map':
+                const startPointInput = document.getElementById('startPoint');
+                const depthSelect = document.getElementById('exploreDepth');
+                data.start_point = startPointInput ? startPointInput.value : '';
+                data.depth = depthSelect ? parseInt(depthSelect.value) : 2;
+                break;
+        }
+    } catch (error) {
+        console.error('建構查詢資料時出錯:', error);
     }
     
     return data;
@@ -306,10 +334,19 @@ function displayResults(results) {
     }
     
     const container = document.getElementById('resultsList');
+    if (!container) {
+        console.error('找不到結果容器');
+        return;
+    }
+    
     container.innerHTML = '';
     
-    if (!results || !results.results || results.results.length === 0) { // Added checks for results and results.results
-        container.innerHTML = '<div class="alert alert-info">沒有找到相關結果</div>';
+    if (!results || !results.results || results.results.length === 0) {
+        let message = '沒有找到相關結果';
+        if (results && results.message) {
+            message = results.message;
+        }
+        container.innerHTML = `<div class="alert alert-info">${message}</div>`;
     } else {
         results.results.forEach(result => {
             container.innerHTML += createResultItem(result);
@@ -321,24 +358,46 @@ function displayResults(results) {
 
 // 創建結果項目
 function createResultItem(result) {
-    // Default values for potentially missing fields
-    const title = result.title || '無標題';
-    const description = result.description || '無描述';
-    const tags = result.tags || [];
-    const strength = result.strength; // Strength might be undefined
+    const title = result.segment_title || result.method_name || '無標題';
+    const sessionTitle = result.session_title || '';
+    const preview = result.segment_content_preview || result.description || '無描述';
     const sessionId = result.session_id || '#';
     const segmentId = result.segment_id || '';
-
+    
+    // 處理不同類型的標籤
+    let tagsHTML = '';
+    if (result.potential_cause_tags) {
+        tagsHTML += result.potential_cause_tags.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#fd7e14'}">病因: ${tag.name}</span>`
+        ).join('');
+    }
+    if (result.matched_symptoms) {
+        tagsHTML += result.matched_symptoms.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#dc3545'}">症狀: ${tag.name}</span>`
+        ).join('');
+    }
+    if (result.potential_treatment_tags) {
+        tagsHTML += result.potential_treatment_tags.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#28a745'}">治療: ${tag.name}</span>`
+        ).join('');
+    }
+    if (result.applicable_symptoms) {
+        tagsHTML += result.applicable_symptoms.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#dc3545'}">適用症狀: ${tag.name}</span>`
+        ).join('');
+    }
+    
+    // 處理強度顯示
     let strengthHTML = '';
-    if (typeof strength !== 'undefined' && strength !== null) {
+    if (typeof result.strength !== 'undefined' && result.strength !== null) {
+        const strengthPercent = Math.round(result.strength * 100);
         strengthHTML = `
-            <div>
+            <div class="mb-2">
                 關聯強度：
                 <span class="relation-strength">
-                    <span class="relation-strength-bar" 
-                          style="width: ${strength * 100}%"></span>
+                    <span class="relation-strength-bar" style="width: ${strengthPercent}%"></span>
                 </span>
-                <small class="text-muted">${(strength * 100).toFixed(0)}%</small>
+                <small class="text-muted">${strengthPercent}%</small>
             </div>
         `;
     }
@@ -346,10 +405,11 @@ function createResultItem(result) {
     return `
         <div class="result-item">
             <h5>${title}</h5>
-            <p class="text-muted">${description}</p>
+            ${sessionTitle ? `<h6 class="text-muted">來源課程: ${sessionTitle}</h6>` : ''}
+            <p class="text-muted">${preview}</p>
             
             <div class="mb-2">
-                ${tags.map(tag => `<span class="badge bg-secondary">${tag}</span>`).join('')}
+                ${tagsHTML}
             </div>
             
             ${strengthHTML}
@@ -366,37 +426,25 @@ function createResultItem(result) {
 
 // 顯示關聯圖
 function displayRelationGraph(data) {
-    document.getElementById('relationGraphContainer').style.display = 'block';
-    const container = document.getElementById('relationGraph');
-    container.innerHTML = '<p class="text-center">關聯圖功能開發中...</p>';
-    // Placeholder for D3.js or other graph library integration
-    if (window.RelationGraph && data && data.nodes && data.links) {
-        const graph = new RelationGraph(container);
+    const container = document.getElementById('relationGraphContainer');
+    if (!container) return;
+    
+    container.style.display = 'block';
+    const graphElement = document.getElementById('relationGraph');
+    
+    if (data && data.nodes && data.links && window.RelationGraph) {
+        const graph = new RelationGraph(graphElement);
         graph.init(data);
+    } else {
+        graphElement.innerHTML = '<p class="text-center text-muted">關聯圖功能開發中，或沒有足夠的關聯資料...</p>';
     }
 }
 
-// 標籤輸入自動完成 (Example for symptomInput)
-if (document.getElementById('symptomInput')) {
-    new TagAutocomplete(document.getElementById('symptomInput'), (tag) => {
-        if (!selectedTags.symptoms.find(t => t.id === tag.id)) {
-            selectedTags.symptoms.push(tag);
-            updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
-        }
-    });
-}
-if (document.getElementById('causeInput')) {
-    new TagAutocomplete(document.getElementById('causeInput'), (tag) => {
-         if (!selectedTags.causes.find(t => t.id === tag.id)) {
-            selectedTags.causes.push(tag);
-            updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
-        }
-    });
-}
-
-
+// 更新選中標籤顯示
 function updateSelectedTagsDisplay(containerId, tagsArray, type) {
     const container = document.getElementById(containerId);
+    if (!container) return;
+    
     container.innerHTML = tagsArray.map((tag, index) => `
         <span class="badge me-1" style="background-color: ${tag.color || '#6c757d'}">
             ${tag.category ? tag.category + ':' : ''}${tag.name}
@@ -405,33 +453,65 @@ function updateSelectedTagsDisplay(containerId, tagsArray, type) {
     `).join('');
 }
 
+// 移除選中標籤
 function removeSelectedTag(type, index) {
-    if (type === 'symptoms') {
+    if (type === 'symptoms' && selectedTags.symptoms[index]) {
         selectedTags.symptoms.splice(index, 1);
         updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
-    } else if (type === 'causes') {
+    } else if (type === 'causes' && selectedTags.causes[index]) {
         selectedTags.causes.splice(index, 1);
         updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
     }
 }
 
-
 // 初始化
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化症狀標籤自動完成
+    const symptomInput = document.getElementById('symptomInput');
+    if (symptomInput) {
+        new TagAutocomplete(symptomInput, (tag) => {
+            if (!selectedTags.symptoms.find(t => t.id === tag.id)) {
+                selectedTags.symptoms.push(tag);
+                updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
+            }
+        });
+    }
+    
+    // 初始化病因標籤自動完成
+    const causeInput = document.getElementById('causeInput');
+    if (causeInput) {
+        new TagAutocomplete(causeInput, (tag) => {
+            if (!selectedTags.causes.find(t => t.id === tag.id)) {
+                selectedTags.causes.push(tag);
+                updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
+            }
+        });
+    }
+    
+    // 初始化手法輸入自動完成
+    const methodInput = document.getElementById('methodInput');
+    if (methodInput) {
+        new TagAutocomplete(methodInput, (tag) => {
+            methodInput.value = tag.name;
+        });
+    }
+    
+    // 檢查 URL 參數
     const urlParams = new URLSearchParams(window.location.search);
     const tagParam = urlParams.get('tag');
     if (tagParam) {
-        // This is a simplified search trigger. 
-        // A more complete implementation would select a query type and populate fields.
         console.log('搜尋標籤:', tagParam);
-        // Example: Pre-fill a search field or trigger a default search
-        // For instance, if you have a general tag search, you could trigger it here.
-        // selectQueryType('symptom_to_cause'); // Or another relevant type
-        // document.getElementById('symptomInput').value = tagParam; 
-        // executeQuery();
+        // 預設選擇症狀診斷查詢
+        selectQueryType('symptom_to_cause');
         
-        // For now, just log it, as the full logic isn't defined for direct tag search from URL
-        alert("查詢參數中的標籤: " + tagParam + "\n此功能需要進一步實現以自動執行搜尋。");
+        // 嘗試將標籤添加為症狀
+        selectedTags.symptoms.push({
+            id: Date.now(),
+            name: tagParam,
+            category: '症狀',
+            color: '#dc3545'
+        });
+        updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
     }
 });
 </script>

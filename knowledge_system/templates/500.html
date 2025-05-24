@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}系統錯誤 - 知識管理系統{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 text-center">
+        <div class="card">
+            <div class="card-body">
+                <i class="fas fa-bug fa-5x text-danger mb-4"></i>
+                <h1 class="display-4">500</h1>
+                <h4>系統錯誤</h4>
+                <p class="text-muted">系統發生內部錯誤，請稍後再試。</p>
+                <a href="{{ url_for('index') }}" class="btn btn-primary">
+                    <i class="fas fa-home"></i> 回到首頁
+                </a>
+                <button onclick="history.back()" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> 返回上頁
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
