@@ -85,6 +85,7 @@ def new_session():
                             color=CATEGORY_COLORS.get(data.get('tag_category', '領域'), '#6c757d')
                         )
                         db.session.add(tag)
+                        db.session.flush()  # 確保tag有ID
                     session.tags.append(tag)
             
             db.session.add(session)
@@ -131,7 +132,8 @@ def edit_session(session_id):
                             category=tag_category,
                             color=CATEGORY_COLORS.get(tag_category, '#6c757d')
                         )
-                        db.session.add(tag) 
+                        db.session.add(tag)
+                        db.session.flush()  # 確保tag有ID
                     session.tags.append(tag)
                 
             db.session.commit()
@@ -207,6 +209,7 @@ def add_segment(session_id):
                         color=color
                     )
                     db.session.add(tag)
+                    db.session.flush()  # 確保tag有ID
                 segment.tags.append(tag)
         
         db.session.add(segment)
@@ -221,11 +224,22 @@ def add_segment(session_id):
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
+        print("=== 文件上傳請求開始 ===")
+        print(f"請求方法: {request.method}")
+        print(f"請求文件: {request.files}")
+        print(f"請求表單: {request.form}")
+        
         if 'file' not in request.files:
+            print("錯誤: 請求中沒有文件部分")
             return jsonify({'error': 'No file part'}), 400
             
         file = request.files['file']
+        print(f"文件名: {file.filename}")
+        print(f"文件大小: {len(file.read())} bytes")
+        file.seek(0)  # 重置文件指針
+        
         if file.filename == '':
+            print("錯誤: 沒有選擇文件")
             return jsonify({'error': 'No selected file'}), 400
         
         if file and allowed_file(file.filename):
@@ -233,11 +247,27 @@ def upload_file():
             filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secure_filename(original_filename)}"
             upload_folder_path = app.config['UPLOAD_FOLDER']
             
+            print(f"原始文件名: {original_filename}")
+            print(f"處理後文件名: {filename}")
+            print(f"上傳資料夾: {upload_folder_path}")
+            
             # 確保上傳資料夾存在
             ensure_upload_folder()
             
             file_path_on_disk = os.path.join(upload_folder_path, filename)
+            print(f"完整文件路徑: {file_path_on_disk}")
+            
+            # 保存文件
             file.save(file_path_on_disk)
+            print(f"文件已保存到: {file_path_on_disk}")
+            
+            # 驗證文件是否真的被保存
+            if os.path.exists(file_path_on_disk):
+                file_size = os.path.getsize(file_path_on_disk)
+                print(f"文件保存成功，大小: {file_size} bytes")
+            else:
+                print("錯誤: 文件保存失敗，文件不存在")
+                return jsonify({'error': 'File save failed'}), 500
             
             ext = filename.rsplit('.', 1)[1].lower()
             file_type = 'document' 
@@ -245,6 +275,8 @@ def upload_file():
                 file_type = 'image'
             elif ext in ['mp4', 'avi']: 
                 file_type = 'video'
+            
+            print(f"文件類型: {file_type}")
             
             attachment = Attachment(
                 filename=filename, 
@@ -254,31 +286,48 @@ def upload_file():
                 description=request.form.get('description', '')
             )
             db.session.add(attachment)
+            print(f"附件對象已創建: {attachment}")
             
             segment_id = request.form.get('segment_id', type=int)
+            print(f"段落ID: {segment_id}")
+            
             processed_segment_id = None 
             if segment_id is not None: 
                 segment = Segment.query.get(segment_id)
                 if segment:
                     segment.attachments.append(attachment)
                     processed_segment_id = segment.id
+                    print(f"附件已關聯到段落: {segment_id}")
+                else:
+                    print(f"警告: 找不到段落 ID {segment_id}")
+            else:
+                print("注意: 沒有提供段落ID，附件將獨立保存")
                     
             db.session.commit() 
+            print("資料庫提交成功")
             
             response_data = {
                 'success': True, 
                 'attachment_id': attachment.id, 
-                'filename': attachment.original_filename
+                'filename': attachment.original_filename,
+                'file_path': filename,
+                'file_type': file_type
             }
             if processed_segment_id is not None: 
                 response_data['segment_id'] = processed_segment_id
                 
+            print(f"回應數據: {response_data}")
+            print("=== 文件上傳請求完成 ===")
             return jsonify(response_data)
-        
-        return jsonify({'error': 'File type not allowed'}), 400
+        else:
+            print(f"錯誤: 不允許的文件類型 {file.filename}")
+            return jsonify({'error': 'File type not allowed'}), 400
         
     except Exception as e:
         db.session.rollback()
+        print(f"文件上傳異常: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # Route to serve uploaded files directly
@@ -428,6 +477,7 @@ def update_segment_detail(segment_id):
                         color = tag_info.get('color', CATEGORY_COLORS.get(category, '#6c757d'))
                         tag = Tag(name=tag_name, category=category, color=color)
                         db.session.add(tag)
+                        db.session.flush()  # 確保tag有ID
                     segment.tags.append(tag)
                     
         db.session.commit()
@@ -671,6 +721,145 @@ def not_found_error(error):
 def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
+
+# 測試上傳頁面 (僅在開發模式下)
+@app.route('/test-upload')
+def test_upload():
+    return '''
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件上傳測試</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>文件上傳測試</h1>
+        
+        <div class="card">
+            <div class="card-body">
+                <form id="testUploadForm">
+                    <div class="mb-3">
+                        <label for="testFile" class="form-label">選擇文件</label>
+                        <input type="file" class="form-control" id="testFile" multiple>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="testSegmentId" class="form-label">段落ID（可選）</label>
+                        <input type="number" class="form-control" id="testSegmentId" placeholder="輸入段落ID">
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" onclick="testUpload()">上傳測試</button>
+                </form>
+                
+                <div id="uploadProgress" class="progress mt-3" style="display: none;">
+                    <div class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                
+                <div id="uploadResults" class="mt-3"></div>
+            </div>
+        </div>
+        
+        <div class="mt-3">
+            <a href="/" class="btn btn-secondary">返回首頁</a>
+        </div>
+    </div>
+
+    <script>
+        async function testUpload() {
+            const fileInput = document.getElementById('testFile');
+            const segmentIdInput = document.getElementById('testSegmentId');
+            const resultsDiv = document.getElementById('uploadResults');
+            
+            if (!fileInput.files.length) {
+                alert('請先選擇文件');
+                return;
+            }
+            
+            resultsDiv.innerHTML = '<div class="alert alert-info">開始上傳...</div>';
+            
+            for (let i = 0; i < fileInput.files.length; i++) {
+                const file = fileInput.files[i];
+                console.log(`測試上傳文件 ${i + 1}:`, file.name);
+                
+                try {
+                    const result = await uploadFile(file, segmentIdInput.value || null);
+                    resultsDiv.innerHTML += `<div class="alert alert-success">
+                        文件 "${file.name}" 上傳成功！<br>
+                        附件ID: ${result.attachment_id}<br>
+                        文件路徑: ${result.file_path}
+                    </div>`;
+                } catch (error) {
+                    console.error('上傳失敗:', error);
+                    resultsDiv.innerHTML += `<div class="alert alert-danger">
+                        文件 "${file.name}" 上傳失敗: ${error.message}
+                    </div>`;
+                }
+            }
+        }
+        
+        function uploadFile(file, segmentId) {
+            return new Promise((resolve, reject) => {
+                const formData = new FormData();
+                formData.append('file', file);
+                if (segmentId) {
+                    formData.append('segment_id', segmentId);
+                }
+                
+                console.log('上傳文件:', file.name, '大小:', file.size, '段落ID:', segmentId);
+                
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        const progressBar = document.querySelector('#uploadProgress .progress-bar');
+                        if (progressBar) {
+                            progressBar.style.width = percentComplete + '%';
+                            progressBar.textContent = Math.round(percentComplete) + '%';
+                            document.getElementById('uploadProgress').style.display = 'block';
+                        }
+                    }
+                });
+                
+                xhr.addEventListener('load', () => {
+                    console.log('上傳回應狀態:', xhr.status);
+                    console.log('上傳回應內容:', xhr.responseText);
+                    
+                    if (xhr.status === 200) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.success) {
+                                resolve(response);
+                            } else {
+                                reject(new Error(response.error || '上傳失敗'));
+                            }
+                        } catch (e) {
+                            reject(new Error('解析回應失敗: ' + e.message));
+                        }
+                    } else {
+                        reject(new Error(`HTTP錯誤: ${xhr.status}`));
+                    }
+                    
+                    setTimeout(() => {
+                        document.getElementById('uploadProgress').style.display = 'none';
+                    }, 2000);
+                });
+                
+                xhr.addEventListener('error', () => {
+                    reject(new Error('網路錯誤'));
+                });
+                
+                xhr.open('POST', '/upload');
+                xhr.send(formData);
+            });
+        }
+    </script>
+</body>
+</html>
+    '''
 
 # 移除原來的主程式入口點，因為我們現在用 main.py 來啟動
 # if __name__ == '__main__':
