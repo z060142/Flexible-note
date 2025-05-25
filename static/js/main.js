@@ -24,6 +24,7 @@ class TagAutocomplete {
         this.selectedIndex = -1;
         this.categorySelector = options.categorySelector || null;
         this.autoPrefix = options.autoPrefix !== false; // 預設啟用自動前綴
+        this.context = options.context || null; // 搜索上下文
         
         this.init();
     }
@@ -66,7 +67,15 @@ class TagAutocomplete {
         }
         
         try {
-            const response = await fetch(`${API_BASE}/api/tags/search?q=${encodeURIComponent(query)}`);
+            // 支持上下文感知搜索
+            let url = `${API_BASE}/api/tags/search?q=${encodeURIComponent(query)}`;
+            
+            // 檢查是否有上下文信息
+            if (this.context) {
+                url += `&context=${encodeURIComponent(this.context)}`;
+            }
+            
+            const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }

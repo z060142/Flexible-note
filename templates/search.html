@@ -58,6 +58,42 @@
 <div class="container">
     <h1 class="mb-4"><i class="fas fa-search"></i> 進階查詢</h1>
     
+    <!-- 智能搜索框 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="fas fa-magic"></i> 智能搜索</h5>
+            <p class="text-muted">直接輸入關鍵詞，系統會自動匹配相關標籤並執行搜索</p>
+            
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="input-group">
+                        <input type="text" class="form-control form-control-lg" 
+                               id="smartSearchInput" 
+                               placeholder="例如：腰痛、腰椎滑脫、推拿、頸椎調整...">
+                        <button class="btn btn-primary btn-lg" onclick="executeSmartSearch()">
+                            <i class="fas fa-search"></i> 智能搜索
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select form-select-lg" id="smartSearchContext">
+                        <option value="">自動檢測</option>
+                        <option value="symptom_to_cause">症狀診斷</option>
+                        <option value="cause_to_treatment">治療方案</option>
+                        <option value="method_analysis">手法分析</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="mt-2">
+                <small class="text-muted">
+                    <i class="fas fa-lightbulb"></i> 
+                    提示：系統會根據關鍵詞智能判斷是症狀、病因還是治療方法，並執行對應的搜索
+                </small>
+            </div>
+        </div>
+    </div>
+    
     <!-- 查詢類型選擇 -->
     <div class="row mb-4">
         <div class="col-md-3">
@@ -523,12 +559,59 @@ function showNodeDetails(node) {
 
 // 搜尋相關內容
 function searchRelatedContent(tagName, tagCategory) {
-    const params = new URLSearchParams();
-    params.set('tag', tagName);
-    if (tagCategory) {
-        params.set('category', tagCategory);
+    // 關閉當前打開的模態視窗
+    const openModals = document.querySelectorAll('.modal.show');
+    openModals.forEach(modal => {
+        const modalInstance = bootstrap.Modal.getInstance(modal);
+        if (modalInstance) {
+            modalInstance.hide();
+        }
+    });
+    
+    // 設置智能搜索輸入框
+    const smartSearchInput = document.getElementById('smartSearchInput');
+    const smartSearchContext = document.getElementById('smartSearchContext');
+    
+    if (!smartSearchInput) {
+        console.error('找不到智能搜索輸入框');
+        return;
     }
-    window.location.href = `/search?${params.toString()}`;
+    
+    // 設置搜索關鍵詞
+    smartSearchInput.value = tagName;
+    
+    // 根據標籤分類設置搜索上下文
+    if (smartSearchContext && tagCategory) {
+        let contextValue = '';
+        switch (tagCategory) {
+            case '症狀':
+                contextValue = 'symptom_to_cause';
+                break;
+            case '病因':
+                contextValue = 'cause_to_treatment';
+                break;
+            case '手法':
+                contextValue = 'method_analysis';
+                break;
+            default:
+                contextValue = ''; // 自動檢測
+        }
+        smartSearchContext.value = contextValue;
+    }
+    
+    // 滾動到智能搜索區域
+    const smartSearchCard = smartSearchInput.closest('.card');
+    if (smartSearchCard) {
+        smartSearchCard.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }
+    
+    // 自動執行智能搜索
+    setTimeout(() => {
+        executeSmartSearch();
+    }, 500); // 稍微延遲以確保頁面滾動完成
 }
 
 // 導出關聯圖
@@ -563,9 +646,340 @@ function removeSelectedTag(type, index) {
     }
 }
 
+// 執行智能搜索
+async function executeSmartSearch() {
+    const smartSearchInput = document.getElementById('smartSearchInput');
+    const smartSearchContext = document.getElementById('smartSearchContext');
+    
+    if (!smartSearchInput) {
+        alert('找不到搜索輸入框');
+        return;
+    }
+    
+    const query = smartSearchInput.value.trim();
+    if (!query) {
+        alert('請輸入搜索關鍵詞');
+        return;
+    }
+    
+    const context = smartSearchContext ? smartSearchContext.value : '';
+    
+    try {
+        // 顯示加載狀態
+        const searchButton = document.querySelector('#smartSearchInput + button');
+        const originalText = searchButton.innerHTML;
+        searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 搜索中...';
+        searchButton.disabled = true;
+        
+        // 調用智能搜索API
+        const response = await fetch('/api/search/smart', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                query: query,
+                context: context
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const results = await response.json();
+        
+        // 恢復按鈕狀態
+        searchButton.innerHTML = originalText;
+        searchButton.disabled = false;
+        
+        // 顯示智能搜索結果
+        displaySmartSearchResults(results);
+        
+        // 記錄搜索歷史
+        if (window.searchHistory) {
+            window.searchHistory.add(query);
+        }
+        
+    } catch (error) {
+        console.error('智能搜索失敗:', error);
+        
+        // 恢復按鈕狀態
+        const searchButton = document.querySelector('#smartSearchInput + button');
+        if (searchButton) {
+            searchButton.innerHTML = '<i class="fas fa-search"></i> 智能搜索';
+            searchButton.disabled = false;
+        }
+        
+        alert('智能搜索失敗，請重試: ' + error.message);
+    }
+}
+
+// 顯示智能搜索結果
+function displaySmartSearchResults(results) {
+    const container = document.getElementById('resultsList');
+    if (!container) {
+        console.error('找不到結果容器');
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    // 顯示匹配的標籤信息
+    if (results.matched_tags && results.matched_tags.length > 0) {
+        const matchedTagsHTML = `
+            <div class="alert alert-info">
+                <h6><i class="fas fa-magic"></i> 智能匹配的標籤：</h6>
+                <div>
+                    ${results.matched_tags.map(tag => 
+                        `<span class="badge me-1" style="background-color: ${tag.color || '#6c757d'}">${tag.category}: ${tag.name}</span>`
+                    ).join('')}
+                </div>
+                <small class="text-muted mt-2 d-block">
+                    搜索上下文: ${getContextDisplayName(results.context)}
+                </small>
+            </div>
+        `;
+        container.innerHTML += matchedTagsHTML;
+    }
+    
+    if (!results.results || results.results.length === 0) {
+        let message = '沒有找到相關結果';
+        if (results.message) {
+            message = results.message;
+        }
+        
+        // 顯示搜索建議
+        if (results.suggestions && results.suggestions.length > 0) {
+            message += '<br><br><strong>建議嘗試：</strong><br>';
+            message += results.suggestions.map(suggestion => 
+                `<button class="btn btn-sm btn-outline-primary me-1 mt-1" onclick="smartSearchInput.value='${suggestion}'; executeSmartSearch();">${suggestion}</button>`
+            ).join('');
+        }
+        
+        container.innerHTML += `<div class="alert alert-warning">${message}</div>`;
+    } else {
+        // 顯示搜索結果
+        results.results.forEach(result => {
+            container.innerHTML += createSmartSearchResultItem(result);
+        });
+    }
+    
+    document.getElementById('queryResults').style.display = 'block';
+    
+    // 滾動到結果區域
+    document.getElementById('queryResults').scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'start'
+    });
+}
+
+// 創建智能搜索結果項目
+function createSmartSearchResultItem(result) {
+    const searchType = result.search_type || 'unknown';
+    
+    switch (searchType) {
+        case 'smart_symptom_diagnosis':
+            return createSymptomDiagnosisResult(result);
+        case 'smart_treatment_search':
+            return createTreatmentSearchResult(result);
+        case 'smart_method_analysis':
+            return createMethodAnalysisResult(result);
+        default:
+            return createResultItem(result); // 使用原有的結果項目創建函數
+    }
+}
+
+// 創建症狀診斷結果
+function createSymptomDiagnosisResult(result) {
+    const title = result.segment_title || '無標題';
+    const sessionTitle = result.session_title || '';
+    const preview = result.segment_content_preview || '無描述';
+    const sessionId = result.session_id || '#';
+    const segmentId = result.segment_id || '';
+    
+    const symptomsHTML = result.matched_symptoms ? 
+        result.matched_symptoms.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#dc3545'}">匹配症狀: ${tag.name}</span>`
+        ).join('') : '';
+    
+    const causesHTML = result.potential_cause_tags ? 
+        result.potential_cause_tags.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#fd7e14'}">可能病因: ${tag.name}</span>`
+        ).join('') : '';
+
+    return `
+        <div class="result-item" style="border-left-color: #dc3545;">
+            <div class="d-flex justify-content-between align-items-start">
+                <h5>${title}</h5>
+                <span class="badge bg-primary">症狀診斷</span>
+            </div>
+            ${sessionTitle ? `<h6 class="text-muted">來源課程: ${sessionTitle}</h6>` : ''}
+            <p class="text-muted">${preview}</p>
+            
+            <div class="mb-2">
+                ${symptomsHTML}
+                ${causesHTML}
+            </div>
+            
+            <div class="mt-2">
+                <a href="/session/${sessionId}${segmentId ? '#segment-' + segmentId : ''}" 
+                   class="btn btn-sm btn-outline-primary">
+                    查看詳情
+                </a>
+                <button class="btn btn-sm btn-outline-secondary ms-2" 
+                        onclick="continueSearch('cause_to_treatment', ${JSON.stringify(result.potential_cause_tags || []).replace(/"/g, '&quot;')})">
+                    查看治療方案
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// 創建治療搜索結果
+function createTreatmentSearchResult(result) {
+    const title = result.segment_title || '無標題';
+    const sessionTitle = result.session_title || '';
+    const preview = result.segment_content_preview || '無描述';
+    const sessionId = result.session_id || '#';
+    const segmentId = result.segment_id || '';
+    
+    const causesHTML = result.matched_causes ? 
+        result.matched_causes.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#fd7e14'}">病因: ${tag.name}</span>`
+        ).join('') : '';
+    
+    const treatmentsHTML = result.potential_treatment_tags ? 
+        result.potential_treatment_tags.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#28a745'}">治療方法: ${tag.name}</span>`
+        ).join('') : '';
+
+    return `
+        <div class="result-item" style="border-left-color: #28a745;">
+            <div class="d-flex justify-content-between align-items-start">
+                <h5>${title}</h5>
+                <span class="badge bg-success">治療方案</span>
+            </div>
+            ${sessionTitle ? `<h6 class="text-muted">來源課程: ${sessionTitle}</h6>` : ''}
+            <p class="text-muted">${preview}</p>
+            
+            <div class="mb-2">
+                ${causesHTML}
+                ${treatmentsHTML}
+            </div>
+            
+            <div class="mt-2">
+                <a href="/session/${sessionId}${segmentId ? '#segment-' + segmentId : ''}" 
+                   class="btn btn-sm btn-outline-primary">
+                    查看詳情
+                </a>
+                ${result.potential_treatment_tags && result.potential_treatment_tags.length > 0 ? 
+                    `<button class="btn btn-sm btn-outline-info ms-2" 
+                             onclick="analyzeMethod('${result.potential_treatment_tags[0].name}')">
+                        分析手法
+                    </button>` : ''
+                }
+            </div>
+        </div>
+    `;
+}
+
+// 創建手法分析結果
+function createMethodAnalysisResult(result) {
+    const methodName = result.method_name || '無名稱';
+    const description = result.description || '無描述';
+    
+    const symptomsHTML = result.applicable_symptoms ? 
+        result.applicable_symptoms.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#dc3545'}">適用症狀: ${tag.name}</span>`
+        ).join('') : '';
+    
+    const causesHTML = result.treated_causes ? 
+        result.treated_causes.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#fd7e14'}">治療病因: ${tag.name}</span>`
+        ).join('') : '';
+    
+    const locationsHTML = result.common_locations ? 
+        result.common_locations.map(tag => 
+            `<span class="badge me-1" style="background-color: ${tag.color || '#28a745'}">常用位置: ${tag.name}</span>`
+        ).join('') : '';
+
+    return `
+        <div class="result-item" style="border-left-color: #ffc107;">
+            <div class="d-flex justify-content-between align-items-start">
+                <h5>${methodName}</h5>
+                <span class="badge bg-warning text-dark">手法分析</span>
+            </div>
+            <p class="text-muted">${description}</p>
+            
+            <div class="mb-3">
+                ${symptomsHTML}
+                ${causesHTML}
+                ${locationsHTML}
+            </div>
+            
+            ${result.example_segments && result.example_segments.length > 0 ? `
+                <div class="mb-2">
+                    <h6>相關案例：</h6>
+                    <ul class="list-unstyled">
+                        ${result.example_segments.slice(0, 3).map(segment => `
+                            <li>
+                                <a href="/session/${segment.session_id}#segment-${segment.segment_id}" 
+                                   class="text-decoration-none">
+                                    <small>${segment.session_title} - ${segment.segment_title}</small>
+                                </a>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+// 獲取上下文顯示名稱
+function getContextDisplayName(context) {
+    const contextNames = {
+        'symptom_to_cause': '症狀診斷',
+        'cause_to_treatment': '治療方案',
+        'method_analysis': '手法分析',
+        '': '自動檢測'
+    };
+    return contextNames[context] || context || '未知';
+}
+
+// 繼續搜索（用於結果中的按鈕）
+function continueSearch(queryType, tags) {
+    if (queryType === 'cause_to_treatment' && tags && tags.length > 0) {
+        // 切換到治療方案查詢
+        selectQueryType('cause_to_treatment');
+        
+        // 添加病因標籤
+        tags.forEach(tag => {
+            if (!selectedTags.causes.find(t => t.id === tag.id)) {
+                selectedTags.causes.push(tag);
+            }
+        });
+        
+        updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
+        
+        // 滾動到查詢建構器
+        document.getElementById('queryBuilder').scrollIntoView({ 
+            behavior: 'smooth'
+        });
+    }
+}
+
+// 分析手法（用於結果中的按鈕）
+function analyzeMethod(methodName) {
+    document.getElementById('smartSearchInput').value = methodName;
+    document.getElementById('smartSearchContext').value = 'method_analysis';
+    executeSmartSearch();
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', function() {
-    // 初始化症狀標籤自動完成
+    // 初始化症狀標籤自動完成 - 支持上下文感知
     const symptomInput = document.getElementById('symptomInput');
     if (symptomInput) {
         new TagAutocomplete(symptomInput, (tag) => {
@@ -574,11 +988,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
             }
         }, {
-            autoPrefix: true
+            autoPrefix: true,
+            context: 'symptom_to_cause'
         });
     }
     
-    // 初始化病因標籤自動完成
+    // 初始化病因標籤自動完成 - 支持上下文感知
     const causeInput = document.getElementById('causeInput');
     if (causeInput) {
         new TagAutocomplete(causeInput, (tag) => {
@@ -587,17 +1002,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectedTagsDisplay('selectedCauses', selectedTags.causes, 'causes');
             }
         }, {
-            autoPrefix: true
+            autoPrefix: true,
+            context: 'cause_to_treatment'
         });
     }
     
-    // 初始化手法輸入自動完成
+    // 初始化手法輸入自動完成 - 支持上下文感知
     const methodInput = document.getElementById('methodInput');
     if (methodInput) {
         new TagAutocomplete(methodInput, (tag) => {
             methodInput.value = tag.name;
         }, {
-            autoPrefix: true
+            autoPrefix: true,
+            context: 'method_analysis'
         });
     }
     
