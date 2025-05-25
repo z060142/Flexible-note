@@ -10,7 +10,16 @@ dependencies = [
     "flask-migrate>=4.0.5",
     "python-dotenv>=1.0.0",
     "pillow>=10.2.0",
+    "pywebview>=5.0.0",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "jieba>=0.42.0",
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
 ]
 
 [tool.uv]
 dev-dependencies = []
+
+[project.scripts]
+knowledge-system = "knowledge_system.main:main"

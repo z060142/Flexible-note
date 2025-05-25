@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>統計分析 - 知識管理系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .stat-card {
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+        }
+        .insight-card {
+            border-left: 4px solid #007bff;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+        .progress-custom {
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-book-medical"></i> 知識管理系統
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home"></i> 首頁
+                </a>
+                <a class="nav-link" href="/search">
+                    <i class="fas fa-search"></i> 進階查詢
+                </a>
+                <a class="nav-link active" href="/statistics">
+                    <i class="fas fa-chart-bar"></i> 統計分析
+                </a>
+                <a class="nav-link" href="/batch-operations">
+                    <i class="fas fa-tasks"></i> 批量操作
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-chart-line"></i> 統計分析儀表板</h1>
+                <p class="text-muted">深入了解您的學習進展和知識結構</p>
+            </div>
+        </div>
+
+        <!-- 基本統計卡片 -->
+        <div class="row mb-4" id="basicStatsRow">
+            <div class="col-md-3">
+                <div class="card stat-card bg-primary text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h3 id="totalSessions">-</h3>
+                                <p class="mb-0">總課程數</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-graduation-cap fa-2x"></i>
+                            </div>
+                        </div>
+                        <small id="recentSessions" class="opacity-75">最近30天: -</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-success text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h3 id="totalSegments">-</h3>
+                                <p class="mb-0">總段落數</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-paragraph fa-2x"></i>
+                            </div>
+                        </div>
+                        <small id="recentSegments" class="opacity-75">最近30天: -</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-warning text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h3 id="totalTags">-</h3>
+                                <p class="mb-0">標籤總數</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-tags fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-info text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h3 id="totalAttachments">-</h3>
+                                <p class="mb-0">附件總數</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="fas fa-paperclip fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 圖表區域 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-pie-chart"></i> 標籤分類分布</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="tagCategoriesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-bar"></i> 段落類型統計</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="segmentTypesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-line"></i> 學習活動趨勢</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="activityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 學習進度分析 -->
+        <div class="row mt-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-graduation-cap"></i> 領域學習進度</h5>
+                    </div>
+                    <div class="card-body" id="domainProgressContainer">
+                        <!-- 動態生成進度條 -->
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-star"></i> 熱門標籤</h5>
+                    </div>
+                    <div class="card-body" id="popularTagsContainer">
+                        <!-- 動態生成熱門標籤 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 操作按鈕 -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <button class="btn btn-primary me-2" onclick="refreshStatistics()">
+                            <i class="fas fa-sync-alt"></i> 刷新統計
+                        </button>
+                        <button class="btn btn-success me-2" onclick="exportStatistics()">
+                            <i class="fas fa-download"></i> 導出報告
+                        </button>
+                        <button class="btn btn-info" onclick="showInsights()">
+                            <i class="fas fa-brain"></i> 智能洞察
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 洞察模態對話框 -->
+    <div class="modal fade" id="insightsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-brain"></i> 智能洞察</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="insightsContent">
+                    <!-- 動態生成洞察內容 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let charts = {};
+        
+        // 頁面載入時初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatistics();
+        });
+        
+        async function loadStatistics() {
+            try {
+                // 載入基本統計
+                const overviewResponse = await fetch('/api/statistics/overview');
+                const overviewData = await overviewResponse.json();
+                
+                updateBasicStats(overviewData.basic_stats);
+                createTagCategoriesChart(overviewData.tag_categories);
+                createSegmentTypesChart(overviewData.segment_types);
+                createActivityChart(overviewData.monthly_activity);
+                
+                // 載入標籤統計
+                const tagResponse = await fetch('/api/statistics/tags');
+                const tagData = await tagResponse.json();
+                updatePopularTags(tagData.popular_tags);
+                
+                // 載入學習進度
+                const progressResponse = await fetch('/api/statistics/learning-progress');
+                const progressData = await progressResponse.json();
+                updateDomainProgress(progressData.domain_progress);
+                
+            } catch (error) {
+                console.error('載入統計數據失敗:', error);
+                showError('載入統計數據失敗，請稍後重試');
+            }
+        }
+        
+        function updateBasicStats(stats) {
+            document.getElementById('totalSessions').textContent = stats.total_sessions;
+            document.getElementById('totalSegments').textContent = stats.total_segments;
+            document.getElementById('totalTags').textContent = stats.total_tags;
+            document.getElementById('totalAttachments').textContent = stats.total_attachments;
+            document.getElementById('recentSessions').textContent = `最近30天: ${stats.recent_sessions}`;
+            document.getElementById('recentSegments').textContent = `最近30天: ${stats.recent_segments}`;
+        }
+        
+        function createTagCategoriesChart(data) {
+            const ctx = document.getElementById('tagCategoriesChart').getContext('2d');
+            
+            if (charts.tagCategories) {
+                charts.tagCategories.destroy();
+            }
+            
+            charts.tagCategories = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.map(item => item.category),
+                    datasets: [{
+                        data: data.map(item => item.count),
+                        backgroundColor: [
+                            '#007bff', '#dc3545', '#28a745', '#17a2b8',
+                            '#ffc107', '#6610f2', '#fd7e14', '#20c997'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+        
+        function createSegmentTypesChart(data) {
+            const ctx = document.getElementById('segmentTypesChart').getContext('2d');
+            
+            if (charts.segmentTypes) {
+                charts.segmentTypes.destroy();
+            }
+            
+            charts.segmentTypes = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.type),
+                    datasets: [{
+                        label: '段落數量',
+                        data: data.map(item => item.count),
+                        backgroundColor: '#007bff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+        
+        function createActivityChart(data) {
+            const ctx = document.getElementById('activityChart').getContext('2d');
+            
+            if (charts.activity) {
+                charts.activity.destroy();
+            }
+            
+            charts.activity = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => item.month),
+                    datasets: [{
+                        label: '課程創建數',
+                        data: data.map(item => item.count),
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updatePopularTags(tags) {
+            const container = document.getElementById('popularTagsContainer');
+            container.innerHTML = '';
+            
+            tags.slice(0, 10).forEach(tag => {
+                const tagElement = document.createElement('div');
+                tagElement.className = 'd-flex justify-content-between align-items-center mb-2';
+                tagElement.innerHTML = `
+                    <span class="badge" style="background-color: ${tag.color}">${tag.name}</span>
+                    <small class="text-muted">${tag.usage_count} 次</small>
+                `;
+                container.appendChild(tagElement);
+            });
+        }
+        
+        function updateDomainProgress(domains) {
+            const container = document.getElementById('domainProgressContainer');
+            container.innerHTML = '';
+            
+            domains.forEach(domain => {
+                const progressElement = document.createElement('div');
+                progressElement.className = 'mb-4';
+                
+                const completeness = Math.min(100, (domain.session_count + domain.segment_count) * 5);
+                
+                progressElement.innerHTML = `
+                    <div class="d-flex justify-content-between mb-1">
+                        <strong>${domain.domain}</strong>
+                        <span class="text-muted">${domain.session_count} 課程, ${domain.segment_count} 段落</span>
+                    </div>
+                    <div class="progress progress-custom mb-2">
+                        <div class="progress-bar" style="width: ${completeness}%"></div>
+                    </div>
+                `;
+                container.appendChild(progressElement);
+            });
+        }
+        
+        function refreshStatistics() {
+            location.reload();
+        }
+        
+        function exportStatistics() {
+            // 生成統計報告的導出功能
+            window.print();
+        }
+        
+        function showInsights() {
+            // 顯示智能洞察
+            const modal = new bootstrap.Modal(document.getElementById('insightsModal'));
+            const content = document.getElementById('insightsContent');
+            
+            content.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-lightbulb text-warning"></i> 學習建議</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><i class="fas fa-arrow-right text-primary"></i> 建議平衡不同領域的學習進度</li>
+                            <li class="mb-2"><i class="fas fa-arrow-right text-primary"></i> 增加標籤的使用以提高內容結構化</li>
+                            <li class="mb-2"><i class="fas fa-arrow-right text-primary"></i> 定期回顧和整理學習內容</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-chart-line text-success"></i> 進展亮點</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2"><i class="fas fa-check text-success"></i> 持續的學習活動記錄</li>
+                            <li class="mb-2"><i class="fas fa-check text-success"></i> 豐富的標籤分類體系</li>
+                            <li class="mb-2"><i class="fas fa-check text-success"></i> 多元化的內容類型</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+            
+            modal.show();
+        }
+        
+        function showError(message) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.prepend(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

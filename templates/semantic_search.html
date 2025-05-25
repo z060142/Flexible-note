@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+
+{% block title %}語義搜尋 - 知識管理系統{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 60px 0;
+        margin-bottom: 30px;
+    }
+    
+    .search-box {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 15px;
+        padding: 30px;
+        backdrop-filter: blur(10px);
+    }
+    
+    .search-input {
+        border: none;
+        border-radius: 50px;
+        padding: 15px 25px;
+        font-size: 16px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .search-type-tabs {
+        margin-top: 20px;
+    }
+    
+    .search-type-tab {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        margin: 0 5px;
+        border-radius: 25px;
+        transition: all 0.3s;
+    }
+    
+    .search-type-tab.active {
+        background: rgba(255, 255, 255, 0.3);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    }
+    
+    .result-card {
+        background: white;
+        border-radius: 15px;
+        padding: 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        transition: transform 0.3s, box-shadow 0.3s;
+    }
+    
+    .result-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    }
+    
+    .score-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    
+    .score-high { background: #d4edda; color: #155724; }
+    .score-medium { background: #fff3cd; color: #856404; }
+    .score-low { background: #f8d7da; color: #721c24; }
+    
+    .search-type-indicator {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 10px;
+        font-size: 10px;
+        text-transform: uppercase;
+        font-weight: bold;
+        margin-left: 10px;
+    }
+    
+    .type-semantic { background: #e7f3ff; color: #0066cc; }
+    .type-keyword { background: #fff0e6; color: #cc6600; }
+    .type-hybrid { background: #f0f8e6; color: #009900; }
+    
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .no-results {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+    }
+    
+    .quick-queries {
+        margin-top: 30px;
+    }
+    
+    .quick-query-btn {
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        padding: 8px 16px;
+        margin: 5px;
+        border-radius: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .quick-query-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-2px);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="search-container">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="search-box text-center">
+                    <h1 class="mb-4">
+                        <i class="fas fa-brain"></i> 
+                        智能語義搜尋
+                    </h1>
+                    <p class="lead mb-4">使用 AI 技術理解您的查詢意圖，找到最相關的知識內容</p>
+                    
+                    <div class="row">
+                        <div class="col-md-8">
+                            <input type="text" 
+                                   class="form-control search-input" 
+                                   id="semanticQuery" 
+                                   placeholder="輸入您想搜尋的內容，例如：肩膀疼痛的治療方法..."
+                                   autocomplete="off">
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-light btn-lg w-100" 
+                                    onclick="performSemanticSearch()" 
+                                    style="border-radius: 50px;">
+                                <i class="fas fa-search"></i> 智能搜尋
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 搜尋類型選擇 -->
+                    <div class="search-type-tabs">
+                        <button class="search-type-tab active" data-type="hybrid">
+                            <i class="fas fa-magic"></i> 混合搜尋
+                        </button>
+                        <button class="search-type-tab" data-type="semantic">
+                            <i class="fas fa-brain"></i> 語義搜尋
+                        </button>
+                        <button class="search-type-tab" data-type="keyword">
+                            <i class="fas fa-search"></i> 關鍵字搜尋
+                        </button>
+                    </div>
+                    
+                    <!-- 快速查詢建議 -->
+                    <div class="quick-queries">
+                        <p class="mb-2">快速查詢:</p>
+                        <button class="quick-query-btn" onclick="setQuery('肩膀疼痛')">肩膀疼痛</button>
+                        <button class="quick-query-btn" onclick="setQuery('腰椎問題')">腰椎問題</button>
+                        <button class="quick-query-btn" onclick="setQuery('頸部僵硬')">頸部僵硬</button>
+                        <button class="quick-query-btn" onclick="setQuery('關節炎治療')">關節炎治療</button>
+                        <button class="quick-query-btn" onclick="setQuery('肌肉放鬆')">肌肉放鬆</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <!-- 載入中動畫 -->
+    <div class="loading-spinner" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">搜尋中...</span>
+        </div>
+        <p class="mt-3">AI 正在分析您的查詢...</p>
+    </div>
+    
+    <!-- 搜尋結果統計 -->
+    <div id="searchStats" style="display: none;">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h4 id="searchStatsText"></h4>
+            </div>
+            <div class="col-md-4 text-end">
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="sortResults('score')">
+                        <i class="fas fa-sort-amount-down"></i> 相關度
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="sortResults('type')">
+                        <i class="fas fa-filter"></i> 類型
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 搜尋結果 -->
+    <div id="searchResults"></div>
+    
+    <!-- 無結果提示 -->
+    <div class="no-results" id="noResults" style="display: none;">
+        <i class="fas fa-search fa-3x mb-3 text-muted"></i>
+        <h4>沒有找到相關結果</h4>
+        <p>請嘗試：</p>
+        <ul class="list-unstyled">
+            <li>• 使用不同的關鍵字</li>
+            <li>• 檢查拼寫是否正確</li>
+            <li>• 嘗試更簡單的查詢</li>
+            <li>• 使用同義詞或相關詞彙</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+let currentSearchType = 'hybrid';
+let currentResults = [];
+
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    // 搜尋類型標籤點擊事件
+    document.querySelectorAll('.search-type-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            document.querySelectorAll('.search-type-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            currentSearchType = this.getAttribute('data-type');
+        });
+    });
+    
+    // 搜尋框回車鍵事件
+    document.getElementById('semanticQuery').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSemanticSearch();
+        }
+    });
+    
+    // 檢查 URL 參數中是否有查詢
+    const urlParams = new URLSearchParams(window.location.search);
+    const query = urlParams.get('q');
+    if (query) {
+        document.getElementById('semanticQuery').value = query;
+        performSemanticSearch();
+    }
+});
+
+// 設置快速查詢
+function setQuery(query) {
+    document.getElementById('semanticQuery').value = query;
+    performSemanticSearch();
+}
+
+// 執行語義搜尋
+async function performSemanticSearch() {
+    const query = document.getElementById('semanticQuery').value.trim();
+    
+    if (!query) {
+        alert('請輸入搜尋內容');
+        return;
+    }
+    
+    // 顯示載入狀態
+    showLoading(true);
+    hideResults();
+    
+    try {
+        const response = await fetch('/api/search/semantic', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                query: query,
+                search_type: currentSearchType,
+                limit: 20
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        currentResults = data.results || [];
+        displayResults(data);
+        
+    } catch (error) {
+        console.error('搜尋失敗:', error);
+        showError('搜尋失敗: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 顯示載入狀態
+function showLoading(show) {
+    document.getElementById('loadingSpinner').style.display = show ? 'block' : 'none';
+}
+
+// 隱藏結果
+function hideResults() {
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchStats').style.display = 'none';
+    document.getElementById('noResults').style.display = 'none';
+}
+
+// 顯示結果
+function displayResults(data) {
+    const resultsContainer = document.getElementById('searchResults');
+    const searchStats = document.getElementById('searchStats');
+    const noResults = document.getElementById('noResults');
+    
+    if (!data.results || data.results.length === 0) {
+        noResults.style.display = 'block';
+        return;
+    }
+    
+    // 顯示統計信息
+    const statsText = `找到 ${data.total_count} 個相關結果 (查詢: "${data.query}", 搜尋模式: ${getSearchTypeText(data.search_type)})`;
+    document.getElementById('searchStatsText').textContent = statsText;
+    searchStats.style.display = 'block';
+    
+    // 渲染結果
+    resultsContainer.innerHTML = data.results.map(result => createResultCard(result)).join('');
+}
+
+// 創建結果卡片
+function createResultCard(result) {
+    const scoreClass = getScoreClass(result.score);
+    const typeClass = getTypeClass(result.search_type);
+    const contentPreview = result.content_preview || '無內容預覽';
+    
+    let linkUrl = '#';
+    if (result.content_type === 'session') {
+        linkUrl = `/session/${result.session_id}`;
+    } else if (result.content_type === 'segment') {
+        linkUrl = `/session/${result.session_id}#segment-${result.segment_id}`;
+    }
+    
+    return `
+        <div class="result-card">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                    <span class="score-badge ${scoreClass}">
+                        相關度: ${Math.round(result.score * 100)}%
+                    </span>
+                    <span class="search-type-indicator ${typeClass}">
+                        ${result.search_type}
+                    </span>
+                </div>
+                <small class="text-muted">
+                    <i class="fas fa-${result.content_type === 'session' ? 'book' : 'paragraph'}"></i>
+                    ${result.content_type === 'session' ? '課程' : '段落'}
+                </small>
+            </div>
+            
+            <h5 class="mb-2">
+                <a href="${linkUrl}" class="text-decoration-none">
+                    ${result.title || '無標題'}
+                </a>
+            </h5>
+            
+            ${result.session_title && result.content_type === 'segment' ? 
+                `<h6 class="text-muted mb-2">來源課程: ${result.session_title}</h6>` : ''}
+            
+            <p class="text-muted mb-3">${contentPreview}</p>
+            
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    ${result.metadata && result.metadata.tags ? 
+                        result.metadata.tags.split(',').slice(0, 3).map(tag => 
+                            `<span class="badge me-1" style="background-color: #6c757d">${tag.trim()}</span>`
+                        ).join('') : ''}
+                </div>
+                
+                <a href="${linkUrl}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-external-link-alt"></i> 查看詳情
+                </a>
+            </div>
+        </div>
+    `;
+}
+
+// 獲取分數樣式類
+function getScoreClass(score) {
+    if (score >= 0.8) return 'score-high';
+    if (score >= 0.6) return 'score-medium';
+    return 'score-low';
+}
+
+// 獲取類型樣式類
+function getTypeClass(type) {
+    return `type-${type}`;
+}
+
+// 獲取搜尋類型文本
+function getSearchTypeText(type) {
+    const types = {
+        'hybrid': '混合搜尋',
+        'semantic': '語義搜尋',
+        'keyword': '關鍵字搜尋'
+    };
+    return types[type] || type;
+}
+
+// 排序結果
+function sortResults(sortBy) {
+    if (!currentResults.length) return;
+    
+    let sortedResults = [...currentResults];
+    
+    if (sortBy === 'score') {
+        sortedResults.sort((a, b) => b.score - a.score);
+    } else if (sortBy === 'type') {
+        sortedResults.sort((a, b) => a.search_type.localeCompare(b.search_type));
+    }
+    
+    displayResults({
+        results: sortedResults,
+        query: document.getElementById('semanticQuery').value,
+        search_type: currentSearchType,
+        total_count: sortedResults.length
+    });
+}
+
+// 顯示錯誤信息
+function showError(message) {
+    document.getElementById('searchResults').innerHTML = `
+        <div class="alert alert-danger" role="alert">
+            <i class="fas fa-exclamation-triangle"></i> ${message}
+        </div>
+    `;
+}
+</script>
+{% endblock %}

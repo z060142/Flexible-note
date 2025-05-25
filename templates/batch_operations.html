@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批量操作 - 知識管理系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .operation-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .operation-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .operation-card.active {
+            border: 2px solid #007bff;
+            background-color: #e7f3ff;
+        }
+        .item-selector {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+        }
+        .item-checkbox {
+            margin-bottom: 0.5rem;
+        }
+        .batch-progress {
+            display: none;
+        }
+        .tag-input-container {
+            border: 1px solid #ced4da;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            min-height: 45px;
+            cursor: text;
+        }
+        .tag-badge {
+            display: inline-block;
+            margin: 2px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-book-medical"></i> 知識管理系統
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home"></i> 首頁
+                </a>
+                <a class="nav-link" href="/search">
+                    <i class="fas fa-search"></i> 進階查詢
+                </a>
+                <a class="nav-link" href="/statistics">
+                    <i class="fas fa-chart-bar"></i> 統計分析
+                </a>
+                <a class="nav-link active" href="/batch-operations">
+                    <i class="fas fa-tasks"></i> 批量操作
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-tasks"></i> 批量操作中心</h1>
+                <p class="text-muted">高效管理您的學習內容，支援批量添加、刪除、修改和導出</p>
+            </div>
+        </div>
+
+        <!-- 操作類型選擇 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h4>選擇操作類型</h4>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card operation-card" onclick="selectOperation('add-tags')">
+                            <div class="card-body text-center">
+                                <i class="fas fa-tags fa-3x text-primary mb-3"></i>
+                                <h5>批量添加標籤</h5>
+                                <p class="text-muted small">為多個段落同時添加標籤</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card operation-card" onclick="selectOperation('delete-segments')">
+                            <div class="card-body text-center">
+                                <i class="fas fa-trash fa-3x text-danger mb-3"></i>
+                                <h5>批量刪除段落</h5>
+                                <p class="text-muted small">同時刪除多個段落</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card operation-card" onclick="selectOperation('export')">
+                            <div class="card-body text-center">
+                                <i class="fas fa-download fa-3x text-success mb-3"></i>
+                                <h5>批量導出</h5>
+                                <p class="text-muted small">導出多個課程數據</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="operationPanels">
+            <!-- 批量添加標籤面板 -->
+            <div id="add-tags-panel" class="operation-panel" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-tags"></i> 批量添加標籤</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>選擇段落</h6>
+                                <div class="item-selector" id="segmentSelector">
+                                    <div class="text-center">
+                                        <div class="spinner-border" role="status">
+                                            <span class="visually-hidden">載入中...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="selectAllSegments()">全選</button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="clearSegmentSelection()">清除</button>
+                                    <span class="ms-2 text-muted">已選擇: <span id="selectedSegmentCount">0</span> 個段落</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>添加標籤</h6>
+                                <div class="tag-input-container" id="tagInputContainer" onclick="focusTagInput()">
+                                    <input type="text" id="tagInput" placeholder="輸入標籤名稱..." 
+                                           style="border: none; outline: none; background: transparent; width: 100%;">
+                                </div>
+                                <div id="selectedTags" class="mt-2"></div>
+                                <div class="mt-2">
+                                    <label class="form-label">標籤分類</label>
+                                    <select class="form-select" id="tagCategory">
+                                        <option value="症狀">症狀</option>
+                                        <option value="病因">病因</option>
+                                        <option value="手法">手法</option>
+                                        <option value="位置">位置</option>
+                                        <option value="治療">治療</option>
+                                        <option value="理論">理論</option>
+                                        <option value="其他">其他</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <button class="btn btn-primary" onclick="executeBatchAddTags()">
+                                    <i class="fas fa-plus"></i> 執行批量添加
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批量刪除段落面板 -->
+            <div id="delete-segments-panel" class="operation-panel" style="display: none;">
+                <div class="card border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h5><i class="fas fa-trash"></i> 批量刪除段落</h5>
+                        <small>⚠️ 此操作無法撤銷，請謹慎選擇</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-12">
+                                <h6>選擇要刪除的段落</h6>
+                                <div class="item-selector" id="deleteSegmentSelector">
+                                    <!-- 動態載入段落列表 -->
+                                </div>
+                                <div class="mt-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="confirmDelete">
+                                        <label class="form-check-label text-danger" for="confirmDelete">
+                                            我確認要刪除選中的段落（此操作無法撤銷）
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <button class="btn btn-danger" onclick="executeBatchDelete()" disabled id="deleteButton">
+                                    <i class="fas fa-trash"></i> 執行批量刪除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批量導出面板 -->
+            <div id="export-panel" class="operation-panel" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-download"></i> 批量導出課程</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6>選擇課程</h6>
+                                <div class="item-selector" id="exportSessionSelector">
+                                    <!-- 動態載入課程列表 -->
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <h6>導出格式</h6>
+                                <select class="form-select" id="exportFormat">
+                                    <option value="json">JSON</option>
+                                </select>
+                                <small class="text-muted">更多格式即將推出</small>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <button class="btn btn-success" onclick="executeBatchExport()">
+                                    <i class="fas fa-download"></i> 執行批量導出
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 進度條 -->
+        <div class="batch-progress mt-4" id="batchProgress">
+            <div class="card">
+                <div class="card-body">
+                    <h6>操作進度</h6>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" id="progressBar">0%</div>
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-muted" id="progressText">準備中...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 結果模態對話框 -->
+    <div class="modal fade" id="resultModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="resultModalTitle">操作結果</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="resultModalBody">
+                    <!-- 動態內容 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">確定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentOperation = null;
+        let selectedSegments = new Set();
+        let selectedTags = [];
+        let allSegments = [];
+        let allSessions = [];
+        let allTags = [];
+
+        // 頁面載入時初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAllData();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // 設置刪除確認checkbox事件
+            document.getElementById('confirmDelete').addEventListener('change', function() {
+                document.getElementById('deleteButton').disabled = !this.checked;
+            });
+
+            // 設置標籤輸入事件
+            document.getElementById('tagInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addTagToSelection();
+                }
+            });
+        }
+
+        async function loadAllData() {
+            try {
+                // 載入所有段落
+                const segmentsResponse = await fetch('/api/segments');
+                if (segmentsResponse.ok) {
+                    allSegments = await segmentsResponse.json();
+                }
+
+                // 載入所有課程
+                const sessionsResponse = await fetch('/api/sessions');
+                if (sessionsResponse.ok) {
+                    allSessions = await sessionsResponse.json();
+                }
+
+                // 載入所有標籤
+                const tagsResponse = await fetch('/api/tags');
+                if (tagsResponse.ok) {
+                    allTags = await tagsResponse.json();
+                }
+
+                console.log('數據載入完成');
+            } catch (error) {
+                console.error('載入數據失敗:', error);
+                showError('載入數據失敗，請刷新頁面重試');
+            }
+        }
+
+        function selectOperation(operation) {
+            // 清除之前的選擇
+            document.querySelectorAll('.operation-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            document.querySelectorAll('.operation-panel').forEach(panel => {
+                panel.style.display = 'none';
+            });
+
+            // 設置當前操作
+            currentOperation = operation;
+            event.currentTarget.classList.add('active');
+            
+            // 顯示對應面板
+            const panel = document.getElementById(`${operation}-panel`);
+            if (panel) {
+                panel.style.display = 'block';
+                initializeOperationPanel(operation);
+            }
+        }
+
+        function initializeOperationPanel(operation) {
+            switch(operation) {
+                case 'add-tags':
+                    loadSegmentSelector('segmentSelector');
+                    break;
+                case 'delete-segments':
+                    loadSegmentSelector('deleteSegmentSelector');
+                    break;
+                case 'export':
+                    loadSessionSelector('exportSessionSelector');
+                    break;
+            }
+        }
+
+        function loadSegmentSelector(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container || allSegments.length === 0) {
+                container.innerHTML = '<p class="text-muted">沒有可用的段落</p>';
+                return;
+            }
+
+            let html = '';
+            allSegments.forEach(segment => {
+                html += `
+                    <div class="item-checkbox">
+                        <div class="form-check">
+                            <input class="form-check-input segment-checkbox" type="checkbox" 
+                                   value="${segment.id}" id="segment-${segment.id}">
+                            <label class="form-check-label" for="segment-${segment.id}">
+                                <strong>${segment.title || '無標題'}</strong>
+                                <span class="badge bg-secondary ms-2">${segment.segment_type}</span>
+                                <br>
+                                <small class="text-muted">${segment.content ? segment.content.substring(0, 100) + '...' : '無內容'}</small>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function loadSessionSelector(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container || allSessions.length === 0) {
+                container.innerHTML = '<p class="text-muted">沒有可用的課程</p>';
+                return;
+            }
+
+            let html = '';
+            allSessions.forEach(session => {
+                html += `
+                    <div class="item-checkbox">
+                        <div class="form-check">
+                            <input class="form-check-input session-checkbox" type="checkbox" 
+                                   value="${session.id}" id="session-${session.id}">
+                            <label class="form-check-label" for="session-${session.id}">
+                                <strong>${session.title}</strong>
+                                <br>
+                                <small class="text-muted">${session.overview ? session.overview.substring(0, 100) + '...' : '無描述'}</small>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function selectAllSegments() {
+            document.querySelectorAll('.segment-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+            updateSelectedCount();
+        }
+
+        function clearSegmentSelection() {
+            document.querySelectorAll('.segment-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const count = document.querySelectorAll('.segment-checkbox:checked').length;
+            const countElement = document.getElementById('selectedSegmentCount');
+            if (countElement) {
+                countElement.textContent = count;
+            }
+        }
+
+        function focusTagInput() {
+            document.getElementById('tagInput').focus();
+        }
+
+        function addTagToSelection() {
+            const input = document.getElementById('tagInput');
+            const tagName = input.value.trim();
+            const category = document.getElementById('tagCategory').value;
+
+            if (tagName && !selectedTags.find(t => t.name === tagName)) {
+                selectedTags.push({
+                    name: tagName,
+                    category: category,
+                    color: getCategoryColor(category)
+                });
+                
+                updateSelectedTagsDisplay();
+                input.value = '';
+            }
+        }
+
+        function updateSelectedTagsDisplay() {
+            const container = document.getElementById('selectedTags');
+            container.innerHTML = selectedTags.map((tag, index) => `
+                <span class="badge tag-badge" style="background-color: ${tag.color}">
+                    ${tag.category}:${tag.name}
+                    <i class="fas fa-times ms-1" onclick="removeSelectedTag(${index})" style="cursor: pointer"></i>
+                </span>
+            `).join('');
+        }
+
+        function removeSelectedTag(index) {
+            selectedTags.splice(index, 1);
+            updateSelectedTagsDisplay();
+        }
+
+        function getCategoryColor(category) {
+            const colors = {
+                '症狀': '#dc3545',
+                '病因': '#fd7e14',
+                '手法': '#007bff',
+                '位置': '#28a745',
+                '治療': '#17a2b8',
+                '理論': '#ffc107',
+                '其他': '#6c757d'
+            };
+            return colors[category] || '#6c757d';
+        }
+
+        // 執行批量操作的函數
+        async function executeBatchAddTags() {
+            const selectedSegmentIds = Array.from(document.querySelectorAll('.segment-checkbox:checked'))
+                .map(cb => parseInt(cb.value));
+            
+            if (selectedSegmentIds.length === 0) {
+                showError('請選擇至少一個段落');
+                return;
+            }
+
+            if (selectedTags.length === 0) {
+                showError('請添加至少一個標籤');
+                return;
+            }
+
+            try {
+                showProgress('正在添加標籤...');
+                
+                const response = await fetch('/api/batch/tags/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        segment_ids: selectedSegmentIds,
+                        tags: selectedTags
+                    })
+                });
+
+                const result = await response.json();
+                hideProgress();
+
+                if (result.success) {
+                    showResult('成功', result.message, 'success');
+                } else {
+                    showError(result.error || '操作失敗');
+                }
+            } catch (error) {
+                hideProgress();
+                showError('操作失敗: ' + error.message);
+            }
+        }
+
+        async function executeBatchDelete() {
+            const selectedSegmentIds = Array.from(document.querySelectorAll('#deleteSegmentSelector .segment-checkbox:checked'))
+                .map(cb => parseInt(cb.value));
+
+            if (selectedSegmentIds.length === 0) {
+                showError('請選擇要刪除的段落');
+                return;
+            }
+
+            if (!document.getElementById('confirmDelete').checked) {
+                showError('請確認刪除操作');
+                return;
+            }
+
+            try {
+                showProgress('正在刪除段落...');
+                
+                const response = await fetch('/api/batch/segments/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        segment_ids: selectedSegmentIds
+                    })
+                });
+
+                const result = await response.json();
+                hideProgress();
+
+                if (result.success) {
+                    showResult('成功', result.message, 'success');
+                    // 重新載入數據
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    showError(result.error || '操作失敗');
+                }
+            } catch (error) {
+                hideProgress();
+                showError('操作失敗: ' + error.message);
+            }
+        }
+
+        async function executeBatchExport() {
+            const selectedSessionIds = Array.from(document.querySelectorAll('#exportSessionSelector .session-checkbox:checked'))
+                .map(cb => parseInt(cb.value));
+            
+            const format = document.getElementById('exportFormat').value;
+
+            if (selectedSessionIds.length === 0) {
+                showError('請選擇要導出的課程');
+                return;
+            }
+
+            try {
+                showProgress('正在導出數據...');
+                
+                // 為每個課程單獨導出
+                for (let i = 0; i < selectedSessionIds.length; i++) {
+                    const sessionId = selectedSessionIds[i];
+                    const response = await fetch(`/api/session/${sessionId}/export?format=${format}`);
+                    
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = url;
+                        a.download = `session_${sessionId}_export.${format}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }
+                }
+                
+                hideProgress();
+                showResult('成功', `成功導出 ${selectedSessionIds.length} 個課程`, 'success');
+                
+            } catch (error) {
+                hideProgress();
+                showError('導出失敗: ' + error.message);
+            }
+        }
+
+        function showProgress(text) {
+            document.getElementById('batchProgress').style.display = 'block';
+            document.getElementById('progressText').textContent = text;
+            document.getElementById('progressBar').style.width = '50%';
+            document.getElementById('progressBar').textContent = '處理中...';
+        }
+
+        function hideProgress() {
+            document.getElementById('batchProgress').style.display = 'none';
+        }
+
+        function showResult(title, message, type) {
+            document.getElementById('resultModalTitle').textContent = title;
+            document.getElementById('resultModalBody').innerHTML = `
+                <div class="alert alert-${type === 'success' ? 'success' : 'danger'}">
+                    <i class="fas fa-${type === 'success' ? 'check' : 'exclamation-triangle'}"></i>
+                    ${message}
+                </div>
+            `;
+            
+            const modal = new bootstrap.Modal(document.getElementById('resultModal'));
+            modal.show();
+        }
+
+        function showError(message) {
+            showResult('錯誤', message, 'error');
+        }
+    </script>
+</body>
+</html>
