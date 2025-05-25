@@ -433,10 +433,109 @@ function displayRelationGraph(data) {
     const graphElement = document.getElementById('relationGraph');
     
     if (data && data.nodes && data.links && window.RelationGraph) {
-        const graph = new RelationGraph(graphElement);
-        graph.init(data);
+        try {
+            // 清空容器
+            graphElement.innerHTML = '';
+            
+            // 創建關聯圖實例
+            const graph = new RelationGraph(graphElement);
+            graph.setData(data);
+            
+            // 添加額外信息
+            const infoPanel = document.createElement('div');
+            infoPanel.className = 'mt-3 p-3 bg-light rounded';
+            infoPanel.innerHTML = `
+                <h6><i class="fas fa-info-circle"></i> 圖譜信息</h6>
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>節點數量:</strong> ${data.total_nodes || data.nodes.length}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>連接數量:</strong> ${data.total_links || data.links.length}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>探索深度:</strong> ${data.max_depth || 2}
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-sm btn-primary" onclick="exportRelationGraph()">
+                            <i class="fas fa-download"></i> 導出圖片
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(infoPanel);
+            
+            // 綁定節點點擊事件
+            graphElement.addEventListener('nodeClick', function(event) {
+                const node = event.detail.node;
+                showNodeDetails(node);
+            });
+            
+        } catch (error) {
+            console.error('創建關聯圖失敗:', error);
+            graphElement.innerHTML = '<p class="text-center text-danger">關聯圖載入失敗，請重試</p>';
+        }
+    } else if (data && data.error) {
+        graphElement.innerHTML = `<p class="text-center text-danger">錯誤: ${data.error}</p>`;
+    } else if (data && data.message) {
+        graphElement.innerHTML = `<p class="text-center text-info">${data.message}</p>`;
     } else {
-        graphElement.innerHTML = '<p class="text-center text-muted">關聯圖功能開發中，或沒有足夠的關聯資料...</p>';
+        graphElement.innerHTML = '<p class="text-center text-muted">沒有可視化數據或未找到相關內容</p>';
+    }
+}
+
+// 顯示節點詳情
+function showNodeDetails(node) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <span class="badge" style="background-color: ${node.color}">${node.category}</span>
+                        ${node.name}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>分類:</strong> ${node.category}</p>
+                    <p><strong>層級:</strong> ${node.level}</p>
+                    <p><strong>重要性:</strong> ${node.importance}</p>
+                    <div class="mt-3">
+                        <button class="btn btn-primary" onclick="searchRelatedContent('${node.name}', '${node.category}')">
+                            <i class="fas fa-search"></i> 查看相關內容
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    const bootstrapModal = new bootstrap.Modal(modal);
+    bootstrapModal.show();
+    
+    modal.addEventListener('hidden.bs.modal', function () {
+        modal.remove();
+    });
+}
+
+// 搜尋相關內容
+function searchRelatedContent(tagName, tagCategory) {
+    const params = new URLSearchParams();
+    params.set('tag', tagName);
+    if (tagCategory) {
+        params.set('category', tagCategory);
+    }
+    window.location.href = `/search?${params.toString()}`;
+}
+
+// 導出關聯圖
+function exportRelationGraph() {
+    const graphElement = document.getElementById('relationGraph');
+    if (graphElement && window.relationGraphInstance) {
+        window.relationGraphInstance.exportImage('png');
     }
 }
 
@@ -505,20 +604,86 @@ document.addEventListener('DOMContentLoaded', function() {
     // 檢查 URL 參數
     const urlParams = new URLSearchParams(window.location.search);
     const tagParam = urlParams.get('tag');
+    const categoryParam = urlParams.get('category');
+    
     if (tagParam) {
-        console.log('搜尋標籤:', tagParam);
-        // 預設選擇症狀診斷查詢
-        selectQueryType('symptom_to_cause');
+        console.log('搜尋標籤:', tagParam, '分類:', categoryParam);
         
-        // 嘗試將標籤添加為症狀
-        selectedTags.symptoms.push({
-            id: Date.now(),
-            name: tagParam,
-            category: '症狀',
-            color: '#dc3545'
-        });
-        updateSelectedTagsDisplay('selectedSymptoms', selectedTags.symptoms, 'symptoms');
+        // 根據標籤分類智能選擇查詢類型
+        let queryType = 'symptom_to_cause'; // 默認
+        let targetCollection = 'symptoms';
+        let tagColor = '#dc3545';
+        let tagCategory = categoryParam || '症狀';
+        
+        if (categoryParam) {
+            switch (categoryParam) {
+                case '症狀':
+                    queryType = 'symptom_to_cause';
+                    targetCollection = 'symptoms';
+                    tagColor = '#dc3545';
+                    break;
+                case '病因':
+                    queryType = 'cause_to_treatment';
+                    targetCollection = 'causes';
+                    tagColor = '#fd7e14';
+                    break;
+                case '手法':
+                    queryType = 'method_analysis';
+                    targetCollection = null; // 手法分析不使用 selectedTags
+                    tagColor = '#007bff';
+                    break;
+                case '位置':
+                case '施術位置':
+                case '治療位置':
+                    queryType = 'symptom_to_cause';
+                    targetCollection = 'symptoms';
+                    tagColor = '#28a745';
+                    break;
+                case '領域':
+                    queryType = 'relation_map';
+                    targetCollection = null;
+                    tagColor = '#6610f2';
+                    break;
+                default:
+                    queryType = 'relation_map';
+                    targetCollection = null;
+                    tagColor = '#6c757d';
+            }
+        }
+        
+        // 選擇對應的查詢類型
+        selectQueryType(queryType);
+        
+        // 根據查詢類型添加標籤或設置輸入值
+        if (queryType === 'method_analysis') {
+            // 手法分析：直接設置輸入框值
+            const methodInput = document.getElementById('methodInput');
+            if (methodInput) {
+                methodInput.value = tagParam;
+            }
+        } else if (queryType === 'relation_map') {
+            // 關聯圖譜：設置起始點
+            const startPointInput = document.getElementById('startPoint');
+            if (startPointInput) {
+                startPointInput.value = tagParam;
+            }
+        } else if (targetCollection && selectedTags[targetCollection]) {
+            // 其他查詢類型：添加到對應的標籤集合
+            selectedTags[targetCollection].push({
+                id: Date.now(),
+                name: tagParam,
+                category: tagCategory,
+                color: tagColor
+            });
+            
+            const containerId = targetCollection === 'symptoms' ? 'selectedSymptoms' : 'selectedCauses';
+            updateSelectedTagsDisplay(containerId, selectedTags[targetCollection], targetCollection);
+        }
     }
 });
 </script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/relation-graph.js') }}"></script>
 {% endblock %}

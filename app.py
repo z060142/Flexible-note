@@ -839,6 +839,17 @@ def search():
                         "session_title": s.session.title if s.session else "N/A"
                     } for s in segments_using_method[:5]]
                 })
+            
+            elif query_type == 'relation_map':
+                start_point = data.get('start_point', None)
+                depth = data.get('depth', 2)
+                
+                if not start_point:
+                    return jsonify({'results': [], 'message': 'Please provide a start point.'})
+                
+                # 構建關聯圖數據
+                graph_data = build_relation_graph(start_point, depth)
+                return jsonify(graph_data)
 
             return jsonify({'results': results})
             
@@ -1198,6 +1209,224 @@ def statistics_dashboard():
 def batch_operations_page():
     """批量操作頁面"""
     return render_template('batch_operations.html')
+
+# 關聯圖譜構建函數
+def build_relation_graph(start_point, depth=2):
+    """構建關聯圖譜數據"""
+    try:
+        nodes = {}  # 存儲節點，避免重複
+        links = []  # 存儲連接
+        visited = set()  # 已處理的節點
+        
+        # 查找起始點
+        start_tag = Tag.query.filter(
+            or_(Tag.name.contains(start_point), Tag.name == start_point)
+        ).first()
+        
+        if not start_tag:
+            # 如果沒找到標籤，嘗試搜尋段落
+            start_segments = Segment.query.filter(
+                or_(Segment.title.contains(start_point), Segment.content.contains(start_point))
+            ).limit(5).all()
+            
+            if not start_segments:
+                return {
+                    'nodes': [],
+                    'links': [],
+                    'message': f'找不到與 "{start_point}" 相關的內容'
+                }
+            
+            # 從找到的段落中提取標籤作為起始點
+            start_tags = []
+            for segment in start_segments:
+                start_tags.extend(segment.tags)
+            
+            if not start_tags:
+                return {
+                    'nodes': [],
+                    'links': [],
+                    'message': f'找到內容但沒有相關標籤'
+                }
+                
+            start_tag = start_tags[0]  # 使用第一個標籤作為起始點
+        
+        # 構建圖譜
+        def add_node(tag, node_type='tag', level=0):
+            node_id = f"{node_type}_{tag.id}"
+            if node_id not in nodes:
+                nodes[node_id] = {
+                    'id': node_id,
+                    'name': tag.name,
+                    'category': tag.category,
+                    'color': tag.color or CATEGORY_COLORS.get(tag.category, '#6c757d'),
+                    'type': node_type,
+                    'level': level,
+                    'size': 10 + level * 5  # 節點大小隨層級變化
+                }
+            return node_id
+        
+        def add_link(source_id, target_id, relation_type, strength=1.0):
+            link_id = f"{source_id}_{target_id}"
+            reverse_link_id = f"{target_id}_{source_id}"
+            
+            # 避免重複連接
+            if not any(l['id'] == link_id or l['id'] == reverse_link_id for l in links):
+                links.append({
+                    'id': link_id,
+                    'source': source_id,
+                    'target': target_id,
+                    'relation_type': relation_type,
+                    'strength': strength,
+                    'value': strength * 10  # 用於可視化中的連線粗細
+                })
+        
+        def explore_relations(tag, current_depth, max_depth):
+            if current_depth > max_depth or tag.id in visited:
+                return
+            
+            visited.add(tag.id)
+            current_node_id = add_node(tag, 'tag', current_depth)
+            
+            # 查找與此標籤共現的其他標籤
+            related_tags = find_related_tags(tag)
+            
+            for related_tag, relation_info in related_tags.items():
+                if related_tag.id != tag.id:
+                    related_node_id = add_node(related_tag, 'tag', current_depth + 1)
+                    add_link(
+                        current_node_id, 
+                        related_node_id, 
+                        relation_info['type'],
+                        relation_info['strength']
+                    )
+                    
+                    # 遞迴探索下一層
+                    if current_depth < max_depth:
+                        explore_relations(related_tag, current_depth + 1, max_depth)
+        
+        def find_related_tags(tag):
+            """找到與指定標籤相關的標籤"""
+            related_tags = {}
+            
+            # 1. 在同一段落中共現的標籤
+            segments_with_tag = Segment.query.join(Segment.tags).filter(Tag.id == tag.id).all()
+            
+            for segment in segments_with_tag:
+                for other_tag in segment.tags:
+                    if other_tag.id != tag.id:
+                        if other_tag not in related_tags:
+                            related_tags[other_tag] = {
+                                'type': get_relation_type(tag, other_tag),
+                                'strength': 0.1,
+                                'co_occurrence': 0
+                            }
+                        related_tags[other_tag]['co_occurrence'] += 1
+                        related_tags[other_tag]['strength'] += 0.1
+            
+            # 2. 在同一課程中的標籤
+            sessions_with_tag = Session.query.join(Session.tags).filter(Tag.id == tag.id).all()
+            
+            for session in sessions_with_tag:
+                for other_tag in session.tags:
+                    if other_tag.id != tag.id:
+                        if other_tag not in related_tags:
+                            related_tags[other_tag] = {
+                                'type': get_relation_type(tag, other_tag),
+                                'strength': 0.05,
+                                'co_occurrence': 0
+                            }
+                        related_tags[other_tag]['strength'] += 0.05
+            
+            # 3. 根據分類關係
+            same_category_tags = Tag.query.filter(
+                Tag.category == tag.category,
+                Tag.id != tag.id
+            ).limit(3).all()
+            
+            for other_tag in same_category_tags:
+                if other_tag not in related_tags:
+                    related_tags[other_tag] = {
+                        'type': 'same_category',
+                        'strength': 0.3,
+                        'co_occurrence': 0
+                    }
+            
+            # 4. 特定關係邏輯
+            if tag.category == '症狀':
+                # 症狀 -> 病因 -> 治療
+                cause_tags = find_tags_by_pattern(tag, '病因')
+                for cause_tag in cause_tags:
+                    related_tags[cause_tag] = {
+                        'type': 'symptom_to_cause',
+                        'strength': 0.8,
+                        'co_occurrence': 0
+                    }
+                    
+            elif tag.category == '病因':
+                # 病因 -> 治療方法
+                treatment_tags = find_tags_by_pattern(tag, '手法')
+                for treatment_tag in treatment_tags:
+                    related_tags[treatment_tag] = {
+                        'type': 'cause_to_treatment',
+                        'strength': 0.7,
+                        'co_occurrence': 0
+                    }
+            
+            return related_tags
+        
+        def get_relation_type(tag1, tag2):
+            """根據標籤分類確定關係類型"""
+            if tag1.category == '症狀' and tag2.category == '病因':
+                return 'symptom_to_cause'
+            elif tag1.category == '病因' and tag2.category == '手法':
+                return 'cause_to_treatment'
+            elif tag1.category == '手法' and tag2.category == '位置':
+                return 'method_to_location'
+            elif tag1.category == tag2.category:
+                return 'same_category'
+            else:
+                return 'co_occurrence'
+        
+        def find_tags_by_pattern(source_tag, target_category):
+            """找到與源標籤在同一段落中出現的特定分類標籤"""
+            segments = Segment.query.join(Segment.tags).filter(Tag.id == source_tag.id).all()
+            found_tags = []
+            
+            for segment in segments:
+                for tag in segment.tags:
+                    if tag.category == target_category and tag not in found_tags:
+                        found_tags.append(tag)
+            
+            return found_tags[:5]  # 限制數量
+        
+        # 開始構建圖譜
+        explore_relations(start_tag, 0, depth)
+        
+        # 轉換為前端需要的格式
+        nodes_list = list(nodes.values())
+        
+        # 計算節點的重要性（連接數）
+        for node in nodes_list:
+            connections = len([link for link in links if link['source'] == node['id'] or link['target'] == node['id']])
+            node['importance'] = connections
+            node['size'] = max(10, min(30, 10 + connections * 2))
+        
+        return {
+            'nodes': nodes_list,
+            'links': links,
+            'center_node': f"tag_{start_tag.id}",
+            'total_nodes': len(nodes_list),
+            'total_links': len(links),
+            'max_depth': depth
+        }
+        
+    except Exception as e:
+        logger.error(f"構建關聯圖失敗: {e}")
+        return {
+            'nodes': [],
+            'links': [],
+            'error': str(e)
+        }
 
 # 錯誤處理
 @app.errorhandler(404)
