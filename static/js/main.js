@@ -24,6 +24,7 @@ class TagAutocomplete {
         this.selectedIndex = -1;
         this.categorySelector = options.categorySelector || null;
         this.autoPrefix = options.autoPrefix !== false; // 預設啟用自動前綴
+        this.context = options.context || null; // 搜索上下文
         
         this.init();
     }
@@ -66,7 +67,15 @@ class TagAutocomplete {
         }
         
         try {
-            const response = await fetch(`${API_BASE}/api/tags/search?q=${encodeURIComponent(query)}`);
+            // 支持上下文感知搜索
+            let url = `${API_BASE}/api/tags/search?q=${encodeURIComponent(query)}`;
+            
+            // 檢查是否有上下文信息
+            if (this.context) {
+                url += `&context=${encodeURIComponent(this.context)}`;
+            }
+            
+            const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -120,9 +129,13 @@ class TagAutocomplete {
                 this.render();
                 break;
             case 'Enter':
-                e.preventDefault();
+                // 只有在明確選中了推薦標籤時才攔截 Enter 鍵
                 if (this.selectedIndex >= 0) {
+                    e.preventDefault();
                     this.select(this.selectedIndex);
+                } else {
+                    // 如果沒有選中任何推薦標籤，隱藏下拉選單並讓 Enter 鍵正常執行其默認行為
+                    this.hide();
                 }
                 break;
             case 'Escape':
