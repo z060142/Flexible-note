@@ -25,6 +25,284 @@ except ImportError as e:
     print("將使用傳統搜尋功能，請安裝必要的依賴：chromadb, sentence-transformers")
     VECTOR_SEARCH_ENABLED = False
 
+# 統一搜尋服務類
+class UnifiedSearchService:
+    """無感知的智能搜尋服務 - 自動決定最佳搜尋策略"""
+    
+    def __init__(self):
+        self.vector_enabled = VECTOR_SEARCH_ENABLED
+        if self.vector_enabled:
+            try:
+                self.search_engine = get_hybrid_search_engine()
+            except Exception as e:
+                logger.warning(f"向量搜尋引擎初始化失敗: {e}")
+                self.vector_enabled = False
+    
+    def search(self, query, context=None, limit=10, **kwargs):
+        """
+        統一搜尋入口 - 自動選擇最佳搜尋策略
+        
+        Args:
+            query: 搜尋關鍵字
+            context: 搜尋上下文 (quick_search, tag_search, advanced_search等)
+            limit: 結果數量限制
+            **kwargs: 其他搜尋參數
+        
+        Returns:
+            統一格式的搜尋結果
+        """
+        if not query or not query.strip():
+            return {
+                'results': [],
+                'total_count': 0,
+                'search_strategy': 'none',
+                'query': query
+            }
+        
+        query = query.strip()
+        search_strategy = self._determine_search_strategy(query, context)
+        
+        try:
+            if search_strategy == 'vector_enhanced' and self.vector_enabled:
+                results = self._vector_enhanced_search(query, limit, **kwargs)
+            elif search_strategy == 'vector_primary' and self.vector_enabled:
+                results = self._vector_primary_search(query, limit, **kwargs)
+            else:
+                results = self._traditional_search(query, limit, **kwargs)
+            
+            # 統一結果格式
+            formatted_results = self._format_unified_results(results, search_strategy)
+            
+            return {
+                'results': formatted_results,
+                'total_count': len(formatted_results),
+                'search_strategy': search_strategy,
+                'query': query,
+                'vector_enabled': self.vector_enabled
+            }
+            
+        except Exception as e:
+            logger.error(f"搜尋失敗: {e}")
+            # 降級到傳統搜尋
+            try:
+                results = self._traditional_search(query, limit, **kwargs)
+                formatted_results = self._format_unified_results(results, 'traditional_fallback')
+                return {
+                    'results': formatted_results,
+                    'total_count': len(formatted_results),
+                    'search_strategy': 'traditional_fallback',
+                    'query': query,
+                    'error': str(e)
+                }
+            except Exception as fallback_error:
+                logger.error(f"傳統搜尋也失敗: {fallback_error}")
+                return {
+                    'results': [],
+                    'total_count': 0,
+                    'search_strategy': 'error',
+                    'query': query,
+                    'error': str(fallback_error)
+                }
+    
+    def _determine_search_strategy(self, query, context):
+        """智能決定搜尋策略"""
+        if not self.vector_enabled:
+            return 'traditional'
+        
+        # 根據查詢長度和複雜度判斷
+        query_length = len(query)
+        word_count = len(query.split())
+        
+        # 短查詢（1-2個詞）：向量搜尋效果更好，幫助擴展相關內容
+        if word_count <= 2 and query_length <= 10:
+            return 'vector_enhanced'
+        
+        # 長查詢（句子）：混合搜尋，精確匹配 + 語義理解
+        elif word_count > 5 or query_length > 20:
+            return 'vector_primary'
+        
+        # 中等長度：根據上下文決定
+        else:
+            if context in ['quick_search', 'tag_search']:
+                return 'vector_enhanced'
+            else:
+                return 'vector_primary'
+    
+    def _vector_enhanced_search(self, query, limit, **kwargs):
+        """向量增強搜尋 - 主要用傳統搜尋，向量搜尋作為補充"""
+        try:
+            # 傳統搜尋
+            traditional_results = self._traditional_search(query, limit // 2, **kwargs)
+            
+            # 向量搜尋補充
+            vector_results = self.search_engine.search(query, 'semantic', limit // 2)
+            
+            # 合併結果，去重
+            combined_results = self._merge_results(traditional_results, vector_results)
+            return combined_results[:limit]
+            
+        except Exception as e:
+            logger.warning(f"向量增強搜尋失敗，降級到傳統搜尋: {e}")
+            return self._traditional_search(query, limit, **kwargs)
+    
+    def _vector_primary_search(self, query, limit, **kwargs):
+        """向量主導搜尋 - 主要用向量搜尋，傳統搜尋作為補充"""
+        try:
+            # 向量搜尋
+            vector_results = self.search_engine.search(query, 'hybrid', limit)
+            
+            # 如果結果不足，用傳統搜尋補充
+            if len(vector_results) < limit // 2:
+                traditional_results = self._traditional_search(query, limit - len(vector_results), **kwargs)
+                combined_results = self._merge_results(vector_results, traditional_results)
+                return combined_results
+            
+            return vector_results
+            
+        except Exception as e:
+            logger.warning(f"向量主導搜尋失敗，降級到傳統搜尋: {e}")
+            return self._traditional_search(query, limit, **kwargs)
+    
+    def _traditional_search(self, query, limit, **kwargs):
+        """傳統搜尋 - 基於資料庫查詢"""
+        results = []
+        
+        # 搜尋課程
+        sessions = Session.query.filter(
+            or_(
+                Session.title.contains(query),
+                Session.overview.contains(query)
+            )
+        ).limit(limit // 2).all()
+        
+        for session in sessions:
+            results.append({
+                'type': 'traditional',
+                'content_type': 'session',
+                'title': session.title,
+                'content': session.overview or '',
+                'score': 0.8,  # 傳統搜尋給固定分數
+                'metadata': {
+                    'session_id': session.id,
+                    'date': session.date.isoformat() if session.date else None,
+                    'tags': ','.join([tag.name for tag in session.tags])
+                }
+            })
+        
+        # 搜尋段落
+        segments = Segment.query.filter(
+            or_(
+                Segment.title.contains(query),
+                Segment.content.contains(query)
+            )
+        ).join(Session).limit(limit // 2).all()
+        
+        for segment in segments:
+            results.append({
+                'type': 'traditional',
+                'content_type': 'segment',
+                'title': segment.title or f'段落 {segment.id}',
+                'content': segment.content or '',
+                'score': 0.7,
+                'metadata': {
+                    'segment_id': segment.id,
+                    'session_id': segment.session_id,
+                    'session_title': segment.session.title if segment.session else '',
+                    'tags': ','.join([tag.name for tag in segment.tags])
+                }
+            })
+        
+        # 搜尋標籤
+        tags = Tag.query.filter(Tag.name.contains(query)).limit(5).all()
+        
+        for tag in tags:
+            # 找到使用此標籤的內容
+            tagged_segments = Segment.query.join(Segment.tags).filter(Tag.id == tag.id).limit(3).all()
+            
+            for segment in tagged_segments:
+                if len(results) >= limit:
+                    break
+                    
+                results.append({
+                    'type': 'traditional',
+                    'content_type': 'segment',
+                    'title': segment.title or f'段落 {segment.id}',
+                    'content': segment.content or '',
+                    'score': 0.6,
+                    'metadata': {
+                        'segment_id': segment.id,
+                        'session_id': segment.session_id,
+                        'session_title': segment.session.title if segment.session else '',
+                        'tags': ','.join([tag.name for tag in segment.tags]),
+                        'matched_tag': tag.name
+                    }
+                })
+        
+        return results[:limit]
+    
+    def _merge_results(self, results1, results2):
+        """合併搜尋結果，去重並按分數排序"""
+        seen_items = set()
+        merged_results = []
+        
+        # 處理結果1
+        for result in results1:
+            key = self._get_result_key(result)
+            if key not in seen_items:
+                seen_items.add(key)
+                merged_results.append(result)
+        
+        # 處理結果2
+        for result in results2:
+            key = self._get_result_key(result)
+            if key not in seen_items:
+                seen_items.add(key)
+                merged_results.append(result)
+        
+        # 按分數排序
+        merged_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        return merged_results
+    
+    def _get_result_key(self, result):
+        """生成結果的唯一標識"""
+        if result.get('content_type') == 'session':
+            return f"session_{result.get('metadata', {}).get('session_id')}"
+        elif result.get('content_type') == 'segment':
+            return f"segment_{result.get('metadata', {}).get('segment_id')}"
+        else:
+            return f"other_{hash(result.get('title', '') + result.get('content', '')[:50])}"
+    
+    def _format_unified_results(self, results, search_strategy):
+        """統一格式化搜尋結果"""
+        formatted_results = []
+        
+        for result in results:
+            formatted_result = {
+                'content_type': result.get('content_type'),
+                'title': result.get('title'),
+                'content_preview': (result.get('content', '')[:200] + '...') if len(result.get('content', '')) > 200 else result.get('content', ''),
+                'score': result.get('score', 0),
+                'search_type': result.get('type', search_strategy),
+                'metadata': result.get('metadata', {})
+            }
+            
+            # 根據內容類型添加特定字段
+            if result.get('content_type') == 'session':
+                formatted_result['session_id'] = result['metadata'].get('session_id')
+                formatted_result['session_title'] = result.get('title')
+            elif result.get('content_type') == 'segment':
+                formatted_result['segment_id'] = result['metadata'].get('segment_id')
+                formatted_result['session_id'] = result['metadata'].get('session_id')
+                formatted_result['session_title'] = result['metadata'].get('session_title', '')
+                formatted_result['segment_title'] = result.get('title')
+            
+            formatted_results.append(formatted_result)
+        
+        return formatted_results
+
+# 全域統一搜尋服務實例
+unified_search = UnifiedSearchService()
+
 # Default colors for tag categories (can be expanded)
 CATEGORY_COLORS = {
     '手法': '#007bff',    # Blue
@@ -655,59 +933,89 @@ def sync_vector_db():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# 新增語義搜尋API端點
-@app.route('/api/search/semantic', methods=['POST'])
-def semantic_search():
-    """語義搜尋 API"""
-    if not VECTOR_SEARCH_ENABLED:
-        return jsonify({'error': 'Vector search is not enabled. Please install required dependencies.'}), 503
-    
+# 統一搜尋 API 端點
+@app.route('/api/search/unified', methods=['POST'])
+def unified_search_api():
+    """統一搜尋 API - 無感知的智能搜尋"""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'results': [], 'message': 'No search data provided'})
         
         query = data.get('query', '')
-        search_type = data.get('search_type', 'hybrid')  # semantic, keyword, hybrid
+        context = data.get('context', 'general_search')  # 搜尋上下文
         limit = data.get('limit', 10)
-        content_type = data.get('content_type')  # session, segment, or None for all
         
         if not query.strip():
             return jsonify({'results': [], 'message': 'Please provide a search query'})
         
-        # 使用混合搜尋引擎
-        search_engine = get_hybrid_search_engine()
-        results = search_engine.search(query, search_type, limit)
+        # 使用統一搜尋服務
+        search_results = unified_search.search(
+            query=query,
+            context=context,
+            limit=limit
+        )
         
-        # 轉換結果格式以符合前端預期
+        return jsonify(search_results)
+        
+    except Exception as e:
+        logger.error(f"統一搜尋失敗: {e}")
+        return jsonify({
+            'results': [],
+            'total_count': 0,
+            'search_strategy': 'error',
+            'query': query,
+            'error': str(e)
+        }), 500
+
+# 保留語義搜尋 API（向後兼容）
+@app.route('/api/search/semantic', methods=['POST'])
+def semantic_search():
+    """語義搜尋 API - 重定向到統一搜尋"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'results': [], 'message': 'No search data provided'})
+        
+        # 轉換參數並調用統一搜尋
+        query = data.get('query', '')
+        limit = data.get('limit', 10)
+        
+        search_results = unified_search.search(
+            query=query,
+            context='semantic_search',
+            limit=limit
+        )
+        
+        # 轉換結果格式以保持向後兼容
         formatted_results = []
-        for result in results:
+        for result in search_results['results']:
             formatted_result = {
-                'search_type': result['type'],
+                'search_type': result['search_type'],
                 'score': result['score'],
                 'content_type': result['content_type'],
                 'title': result['title'],
-                'content_preview': result['content'][:200] + '...' if len(result['content']) > 200 else result['content'],
+                'content_preview': result['content_preview'],
                 'metadata': result['metadata']
             }
             
             # 根據內容類型添加特定字段
             if result['content_type'] == 'session':
-                formatted_result['session_id'] = result['metadata'].get('session_id')
-                formatted_result['session_title'] = result['title']
+                formatted_result['session_id'] = result.get('session_id')
+                formatted_result['session_title'] = result.get('session_title')
             elif result['content_type'] == 'segment':
-                formatted_result['segment_id'] = result['metadata'].get('segment_id')
-                formatted_result['session_id'] = result['metadata'].get('session_id')
-                formatted_result['session_title'] = result['metadata'].get('session_title', '')
-                formatted_result['segment_title'] = result['title']
+                formatted_result['segment_id'] = result.get('segment_id')
+                formatted_result['session_id'] = result.get('session_id')
+                formatted_result['session_title'] = result.get('session_title', '')
+                formatted_result['segment_title'] = result.get('segment_title')
             
             formatted_results.append(formatted_result)
         
         return jsonify({
             'results': formatted_results,
-            'query': query,
-            'search_type': search_type,
-            'total_count': len(formatted_results)
+            'query': search_results['query'],
+            'search_type': search_results['search_strategy'],
+            'total_count': search_results['total_count']
         })
         
     except Exception as e:

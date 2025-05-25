@@ -12,18 +12,28 @@
             </a>
         </div>
 
-        <!-- 快速搜尋 -->
+        <!-- 智能快速搜尋 -->
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-6">
-                        <input type="text" class="form-control" id="quickSearch" placeholder="搜尋課程標題或標籤...">
+                    <div class="col-md-8">
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="quickSearch" placeholder="搜尋課程、內容或標籤... (智能語義搜尋)">
+                            <div class="position-absolute top-50 end-0 translate-middle-y me-3">
+                                <small class="text-muted" id="searchStrategy" style="font-size: 10px;"></small>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <select class="form-select" id="tagFilter">
                             <option value="">所有標籤</option>
                         </select>
                     </div>
+                </div>
+                <!-- 搜尋結果區域 -->
+                <div id="searchResults" class="mt-3" style="display: none;">
+                    <hr>
+                    <div id="searchResultsContent"></div>
                 </div>
             </div>
         </div>
@@ -77,55 +87,258 @@
 </div>
 
 <script>
-// 快速搜尋功能
+// 全域變數
+var searchTimeout;
+var isSmartSearchMode = false;
+
+// 智能快速搜尋功能
 document.getElementById('quickSearch').addEventListener('input', function(e) {
-    const searchTerm = e.target.value.toLowerCase();
-    const cards = document.querySelectorAll('.session-card');
+    var searchTerm = e.target.value.trim();
+    var searchStrategy = document.getElementById('searchStrategy');
+    var searchResults = document.getElementById('searchResults');
+    var sessionList = document.getElementById('sessionList');
     
-    cards.forEach(card => {
-        const title = card.querySelector('h5').textContent.toLowerCase();
-        const tags = Array.from(card.querySelectorAll('.badge')).map(b => b.textContent.toLowerCase());
-        const overview = card.querySelector('.card-text').textContent.toLowerCase();
+    clearTimeout(searchTimeout);
+    
+    if (searchTerm.length === 0) {
+        resetToOriginalState();
+        return;
+    }
+    
+    if (searchTerm.length < 2) {
+        isSmartSearchMode = false;
+        searchStrategy.textContent = '本地搜尋';
+        searchResults.style.display = 'none';
+        sessionList.style.display = '';
+        performLocalSearch(searchTerm);
+        return;
+    }
+    
+    searchTimeout = setTimeout(function() {
+        performSmartSearch(searchTerm);
+    }, 500);
+});
+
+function resetToOriginalState() {
+    isSmartSearchMode = false;
+    document.getElementById('searchStrategy').textContent = '';
+    document.getElementById('searchResults').style.display = 'none';
+    document.getElementById('sessionList').style.display = '';
+    showAllCards();
+}
+
+function performLocalSearch(searchTerm) {
+    var cards = document.querySelectorAll('.session-card');
+    var searchTermLower = searchTerm.toLowerCase();
+    
+    cards.forEach(function(card) {
+        var title = card.querySelector('h5').textContent.toLowerCase();
+        var badgeElements = card.querySelectorAll('.badge');
+        var tags = [];
+        for (var i = 0; i < badgeElements.length; i++) {
+            tags.push(badgeElements[i].textContent.toLowerCase());
+        }
+        var overview = card.querySelector('.card-text').textContent.toLowerCase();
         
-        if (title.includes(searchTerm) || tags.some(tag => tag.includes(searchTerm)) || overview.includes(searchTerm)) {
+        var titleMatch = title.includes(searchTermLower);
+        var tagMatch = false;
+        for (var j = 0; j < tags.length; j++) {
+            if (tags[j].includes(searchTermLower)) {
+                tagMatch = true;
+                break;
+            }
+        }
+        var overviewMatch = overview.includes(searchTermLower);
+        
+        if (titleMatch || tagMatch || overviewMatch) {
             card.style.display = '';
         } else {
             card.style.display = 'none';
         }
     });
-});
-
-// 載入標籤過濾器
-async function loadTagFilter() {
-    try {
-        const response = await fetch('/api/tags');
-        const tags = await response.json();
-        
-        const select = document.getElementById('tagFilter');
-        tags.forEach(tag => {
-            const option = document.createElement('option');
-            option.value = tag.name;
-            option.textContent = `${tag.name} (${tag.category})`;
-            select.appendChild(option);
-        });
-    } catch (error) {
-        console.error('載入標籤失敗:', error);
-    }
 }
 
-// 標籤過濾
-document.getElementById('tagFilter').addEventListener('change', function(e) {
-    const selectedTag = e.target.value;
-    const cards = document.querySelectorAll('.session-card');
+function performSmartSearch(searchTerm) {
+    var searchStrategy = document.getElementById('searchStrategy');
+    var searchResults = document.getElementById('searchResults');
+    var sessionList = document.getElementById('sessionList');
     
-    cards.forEach(card => {
+    searchStrategy.textContent = '智能搜尋中...';
+    
+    fetch('/api/search/unified', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            query: searchTerm,
+            context: 'quick_search',
+            limit: 10
+        })
+    })
+    .then(function(response) {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+        }
+        return response.json();
+    })
+    .then(function(data) {
+        var strategyText = getStrategyDisplayText(data.search_strategy);
+        searchStrategy.textContent = strategyText;
+        
+        if (data.results && data.results.length > 0) {
+            isSmartSearchMode = true;
+            sessionList.style.display = 'none';
+            searchResults.style.display = 'block';
+            displaySmartSearchResults(data.results, searchTerm);
+        } else {
+            isSmartSearchMode = false;
+            searchResults.style.display = 'none';
+            sessionList.style.display = '';
+            performLocalSearch(searchTerm);
+            searchStrategy.textContent = strategyText + ' (無結果，顯示本地匹配)';
+        }
+    })
+    .catch(function(error) {
+        console.error('智能搜尋失敗:', error);
+        isSmartSearchMode = false;
+        searchStrategy.textContent = '智能搜尋失敗，使用本地搜尋';
+        searchResults.style.display = 'none';
+        sessionList.style.display = '';
+        performLocalSearch(searchTerm);
+    });
+}
+
+function displaySmartSearchResults(results, query) {
+    var searchResultsContent = document.getElementById('searchResultsContent');
+    
+    var html = '<div class="d-flex justify-content-between align-items-center mb-3">';
+    html += '<h6 class="mb-0"><i class="fas fa-brain text-primary me-1"></i>';
+    html += '智能搜尋結果 (' + results.length + ' 項)</h6>';
+    html += '<small class="text-muted">查詢: "' + query + '"</small></div>';
+    html += '<div class="row">';
+    
+    for (var i = 0; i < results.length; i++) {
+        html += createResultCard(results[i]);
+    }
+    
+    html += '</div>';
+    searchResultsContent.innerHTML = html;
+}
+
+function createResultCard(result) {
+    var isSession = result.content_type === 'session';
+    var linkUrl = isSession ? 
+        '/session/' + result.session_id : 
+        '/session/' + result.session_id + '#segment-' + result.segment_id;
+    
+    var scoreColor = result.score >= 0.8 ? 'success' : 
+                     result.score >= 0.6 ? 'warning' : 'secondary';
+    
+    var typeIcon = isSession ? 'book' : 'paragraph';
+    var typeText = isSession ? '課程' : '段落';
+    
+    var html = '<div class="col-md-6 mb-3">';
+    html += '<div class="card h-100 shadow-sm">';
+    html += '<div class="card-body">';
+    
+    html += '<div class="d-flex justify-content-between align-items-start mb-2">';
+    html += '<small class="badge bg-' + scoreColor + '">';
+    html += '相關度: ' + Math.round(result.score * 100) + '%</small>';
+    html += '<small class="text-muted">';
+    html += '<i class="fas fa-' + typeIcon + '"></i> ' + typeText + '</small>';
+    html += '</div>';
+    
+    html += '<h6 class="card-title">';
+    html += '<a href="' + linkUrl + '" class="text-decoration-none">';
+    html += (result.title || '無標題') + '</a></h6>';
+    
+    if (!isSession && result.session_title) {
+        html += '<small class="text-muted d-block mb-2">來源: ' + result.session_title + '</small>';
+    }
+    
+    html += '<p class="card-text small text-muted">';
+    html += (result.content_preview || '無內容預覽') + '</p>';
+    
+    html += '<div class="d-flex justify-content-between align-items-center">';
+    html += '<small class="text-muted">' + result.search_type + '</small>';
+    html += '<a href="' + linkUrl + '" class="btn btn-sm btn-outline-primary">';
+    html += '<i class="fas fa-external-link-alt"></i> 查看</a>';
+    html += '</div>';
+    
+    html += '</div></div></div>';
+    return html;
+}
+
+function getStrategyDisplayText(strategy) {
+    var strategies = {
+        'vector_enhanced': '向量增強',
+        'vector_primary': '向量主導',
+        'traditional': '傳統搜尋',
+        'traditional_fallback': '傳統備援',
+        'error': '搜尋錯誤',
+        'none': '無搜尋'
+    };
+    return strategies[strategy] || strategy;
+}
+
+function showAllCards() {
+    var cards = document.querySelectorAll('.session-card');
+    cards.forEach(function(card) {
+        card.style.display = '';
+    });
+}
+
+function loadTagFilter() {
+    fetch('/api/tags')
+    .then(function(response) {
+        return response.json();
+    })
+    .then(function(tags) {
+        var select = document.getElementById('tagFilter');
+        for (var i = 0; i < tags.length; i++) {
+            var option = document.createElement('option');
+            option.value = tags[i].name;
+            option.textContent = tags[i].name + ' (' + tags[i].category + ')';
+            select.appendChild(option);
+        }
+    })
+    .catch(function(error) {
+        console.error('載入標籤失敗:', error);
+    });
+}
+
+document.getElementById('tagFilter').addEventListener('change', function(e) {
+    var selectedTag = e.target.value;
+    
+    if (isSmartSearchMode) {
+        document.getElementById('quickSearch').value = '';
+        resetToOriginalState();
+    }
+    
+    var cards = document.querySelectorAll('.session-card');
+    
+    cards.forEach(function(card) {
         if (!selectedTag) {
             card.style.display = '';
             return;
         }
         
-        const tags = Array.from(card.querySelectorAll('.badge')).map(b => b.textContent);
-        if (tags.includes(selectedTag)) {
+        var badgeElements = card.querySelectorAll('.badge');
+        var tags = [];
+        for (var i = 0; i < badgeElements.length; i++) {
+            tags.push(badgeElements[i].textContent);
+        }
+        
+        var hasTag = false;
+        for (var j = 0; j < tags.length; j++) {
+            if (tags[j] === selectedTag) {
+                hasTag = true;
+                break;
+            }
+        }
+        
+        if (hasTag) {
             card.style.display = '';
         } else {
             card.style.display = 'none';
@@ -133,12 +346,10 @@ document.getElementById('tagFilter').addEventListener('change', function(e) {
     });
 });
 
-// 編輯課程
 function editSession(sessionId) {
-    window.location.href = `/session/${sessionId}/edit`;
+    window.location.href = '/session/' + sessionId + '/edit';
 }
 
-// 頁面載入時初始化
 document.addEventListener('DOMContentLoaded', function() {
     loadTagFilter();
 });
