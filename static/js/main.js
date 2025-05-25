@@ -120,9 +120,13 @@ class TagAutocomplete {
                 this.render();
                 break;
             case 'Enter':
-                e.preventDefault();
+                // 只有在明確選中了推薦標籤時才攔截 Enter 鍵
                 if (this.selectedIndex >= 0) {
+                    e.preventDefault();
                     this.select(this.selectedIndex);
+                } else {
+                    // 如果沒有選中任何推薦標籤，隱藏下拉選單並讓 Enter 鍵正常執行其默認行為
+                    this.hide();
                 }
                 break;
             case 'Escape':
