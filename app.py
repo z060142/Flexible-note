@@ -2071,6 +2071,135 @@ def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
 
+# LLM 課程錄入功能
+@app.route('/llm-course-create')
+def llm_course_create():
+    """LLM 課程錄入頁面"""
+    return render_template('llm_course_create.html', datetime=datetime)
+
+@app.route('/api/llm/test-ollama', methods=['POST'])
+def test_ollama_connection():
+    """測試 Ollama 連接"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('baseUrl'):
+            return jsonify({'success': False, 'error': '請提供 Ollama 服務地址'}), 400
+        
+        from llm_service import LLMCourseService
+        result = LLMCourseService.test_ollama_connection(data['baseUrl'])
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/llm/process-course', methods=['POST'])
+def process_course_with_llm():
+    """使用 LLM 處理課程文檔"""
+    try:
+        # 檢查是否有文件上傳
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': '沒有上傳文件'}), 400
+        
+        files = request.files.getlist('files')
+        if not files or not any(f.filename for f in files):
+            return jsonify({'success': False, 'error': '沒有選擇有效文件'}), 400
+        
+        # 獲取表單數據
+        form_data = {
+            'apiProvider': request.form.get('apiProvider'),
+            'courseTitle': request.form.get('courseTitle'),
+            'courseDate': request.form.get('courseDate'),
+            'courseDomain': request.form.get('courseDomain'),
+            'additionalTags': request.form.get('additionalTags'),
+            'apiKey': request.form.get('apiKey'),
+            'baseUrl': request.form.get('baseUrl'),
+            'model': request.form.get('model')
+        }
+        
+        # 驗證必要參數
+        if not form_data['apiProvider']:
+            return jsonify({'success': False, 'error': '請選擇 API 提供者'}), 400
+        
+        if not form_data['courseTitle']:
+            return jsonify({'success': False, 'error': '請輸入課程標題'}), 400
+        
+        # 根據 API 提供者驗證配置
+        if form_data['apiProvider'] in ['openai', 'gemini'] and not form_data['apiKey']:
+            return jsonify({'success': False, 'error': 'API Key 不能為空'}), 400
+        
+        # 處理文檔
+        from llm_service import LLMCourseService
+        processed_course = LLMCourseService.process_course_files(files, form_data)
+        
+        # 轉換為字典格式返回
+        result_data = {
+            'courseTitle': processed_course.courseTitle,
+            'overview': processed_course.overview,
+            'tags': processed_course.tags,
+            'segments': [
+                {
+                    'type': segment.type,
+                    'title': segment.title,
+                    'content': segment.content,
+                    'tags': segment.tags
+                }
+                for segment in processed_course.segments
+            ],
+            # 保存原始課程信息用於後續保存
+            '_courseInfo': form_data
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': result_data
+        })
+        
+    except Exception as e:
+        logger.error(f"LLM 課程處理失敗: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/llm/save-course', methods=['POST'])
+def save_llm_course():
+    """保存 LLM 處理後的課程"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': '沒有課程數據'}), 400
+        
+        # 提取課程信息
+        course_info = data.get('_courseInfo', {})
+        
+        # 保存課程
+        from llm_service import LLMCourseService
+        session_id = LLMCourseService.save_processed_course(data, course_info)
+        
+        # 自動同步到向量數據庫（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                session = Session.query.get(session_id)
+                if session:
+                    chroma_manager.add_session(session)
+            except Exception as e:
+                logger.warning(f"向量數據庫同步失敗: {e}")
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': '課程保存成功'
+        })
+        
+    except Exception as e:
+        logger.error(f"保存 LLM 課程失敗: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # 測試上傳頁面 (僅在開發模式下)
 @app.route('/test-upload')
 def test_upload():
