@@ -1,0 +1,918 @@
+{% extends "base.html" %}
+
+{% block title %}LLM 課程錄入{% endblock %}
+
+{% block extra_css %}
+<style>
+    .upload-zone {
+        border: 2px dashed #ccc;
+        border-radius: 8px;
+        padding: 40px;
+        text-align: center;
+        margin: 20px 0;
+        transition: border-color 0.3s ease;
+    }
+    
+    .upload-zone:hover {
+        border-color: #007bff;
+    }
+    
+    .upload-zone.dragover {
+        border-color: #007bff;
+        background-color: #f8f9fa;
+    }
+    
+    .file-item {
+        display: flex;
+        justify-content: between;
+        align-items: center;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin: 5px 0;
+        background-color: #f8f9fa;
+    }
+    
+    .file-item .file-info {
+        flex-grow: 1;
+    }
+    
+    .file-item .file-size {
+        color: #666;
+        font-size: 0.9em;
+    }
+    
+    .api-config {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 0;
+    }
+    
+    .api-status {
+        margin-top: 10px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+    
+    .api-status.loaded {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    
+    .api-status.saving {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+    }
+    
+    .api-status.warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+    }
+    
+    .api-status.error {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+    
+    .processing-status {
+        display: none;
+        background-color: #e7f3ff;
+        border: 1px solid #b6d7ff;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 20px 0;
+    }
+    
+    .progress-bar {
+        width: 100%;
+        height: 20px;
+        background-color: #f0f0f0;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 10px 0;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background-color: #007bff;
+        transition: width 0.3s ease;
+        width: 0%;
+    }
+    
+    .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        margin: 20px 0;
+    }
+    
+    .step {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 0 5px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+    }
+    
+    .step.active {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .step.completed {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .result-preview {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 0;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .segment-preview {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        margin: 10px 0;
+        background-color: white;
+    }
+    
+    .segment-type {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        font-weight: bold;
+        margin-right: 10px;
+    }
+    
+    .tag-item {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin: 2px;
+        background-color: #e9ecef;
+    }
+    
+    .save-config-btn {
+        margin-top: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h2><i class="fas fa-robot"></i> LLM 課程錄入</h2>
+            <p class="text-muted">使用 AI 智能分析文檔，自動生成結構化課程內容</p>
+            
+            <!-- 步驟指示器 -->
+            <div class="step-indicator">
+                <div class="step active" id="step-1">
+                    <strong>1. 配置 API</strong>
+                    <br><small>選擇並配置 LLM 服務</small>
+                </div>
+                <div class="step" id="step-2">
+                    <strong>2. 課程信息</strong>
+                    <br><small>設定課程基本信息</small>
+                </div>
+                <div class="step" id="step-3">
+                    <strong>3. 上傳文檔</strong>
+                    <br><small>上傳講義或相關材料</small>
+                </div>
+                <div class="step" id="step-4">
+                    <strong>4. AI 處理</strong>
+                    <br><small>等待 AI 分析生成內容</small>
+                </div>
+                <div class="step" id="step-5">
+                    <strong>5. 完成</strong>
+                    <br><small>預覽並保存課程</small>
+                </div>
+            </div>
+            
+            <form id="llmCourseForm">
+                <!-- API 配置區域 -->
+                <div class="api-config" id="api-config-section">
+                    <h4><i class="fas fa-cog"></i> API 配置</h4>
+                    
+                    <div class="form-group">
+                        <label for="apiProvider">API 提供者</label>
+                        <select class="form-control" id="apiProvider" name="apiProvider" required>
+                            <option value="">選擇 API 提供者</option>
+                            <option value="openai">OpenAI (GPT)</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="ollama">Ollama (本地)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- OpenAI 配置 -->
+                    <div id="openai-config" class="provider-config" style="display: none;">
+                        <div class="form-group">
+                            <label for="openaiApiKey">API Key</label>
+                            <input type="password" class="form-control" id="openaiApiKey" name="openaiApiKey" 
+                                   placeholder="sk-...">
+                        </div>
+                        <div class="form-group">
+                            <label for="openaiBaseUrl">Base URL (可選)</label>
+                            <input type="url" class="form-control" id="openaiBaseUrl" name="openaiBaseUrl" 
+                                   placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+                        </div>
+                        <div class="form-group">
+                            <label for="openaiModel">模型</label>
+                            <input type="text" class="form-control" id="openaiModel" name="openaiModel" 
+                                   placeholder="例如：gpt-4o, gpt-4-turbo, gpt-3.5-turbo" 
+                                   value="gpt-3.5-turbo">
+                            <small class="form-text text-muted">請輸入您要使用的 OpenAI 模型名稱</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Gemini 配置 -->
+                    <div id="gemini-config" class="provider-config" style="display: none;">
+                        <div class="form-group">
+                            <label for="geminiApiKey">API Key</label>
+                            <input type="password" class="form-control" id="geminiApiKey" name="geminiApiKey" 
+                                   placeholder="AIza...">
+                        </div>
+                        <div class="form-group">
+                            <label for="geminiModel">模型</label>
+                            <input type="text" class="form-control" id="geminiModel" name="geminiModel" 
+                                   placeholder="例如：gemini-pro, gemini-pro-vision" 
+                                   value="gemini-pro">
+                            <small class="form-text text-muted">請輸入您要使用的 Gemini 模型名稱</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Ollama 配置 -->
+                    <div id="ollama-config" class="provider-config" style="display: none;">
+                        <div class="form-group">
+                            <label for="ollamaBaseUrl">Ollama 服務地址</label>
+                            <input type="url" class="form-control" id="ollamaBaseUrl" name="ollamaBaseUrl" 
+                                   placeholder="http://localhost:11434" value="http://localhost:11434">
+                        </div>
+                        <div class="form-group">
+                            <label for="ollamaModel">模型</label>
+                            <input type="text" class="form-control" id="ollamaModel" name="ollamaModel" 
+                                   placeholder="例如：llama2, mistral, qwen, codellama" 
+                                   value="llama2">
+                            <small class="form-text text-muted">請輸入您要使用的 Ollama 模型名稱</small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="testOllamaConnection">
+                            <i class="fas fa-plug"></i> 測試連接
+                        </button>
+                    </div>
+                    
+                    <!-- API 配置狀態 -->
+                    <div id="apiStatus" class="api-status" style="display: none;"></div>
+                </div>
+                
+                <!-- 課程基本信息 -->
+                <div class="form-group">
+                    <label for="courseTitle">課程標題 *</label>
+                    <input type="text" class="form-control" id="courseTitle" name="courseTitle" required 
+                           placeholder="例如：中醫推拿手法與臨床應用">
+                </div>
+                
+                <div class="form-group">
+                    <label for="courseDate">課程日期</label>
+                    <input type="date" class="form-control" id="courseDate" name="courseDate" 
+                           value="{{ datetime.now().strftime('%Y-%m-%d') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="courseDomain">課程領域</label>
+                    <input type="text" class="form-control" id="courseDomain" name="courseDomain" 
+                           placeholder="例如：中醫、推拿、針灸" list="domainSuggestions">
+                    <datalist id="domainSuggestions">
+                        <option value="中醫">
+                        <option value="推拿">
+                        <option value="針灸">
+                        <option value="理療">
+                        <option value="康復">
+                    </datalist>
+                </div>
+                
+                <div class="form-group">
+                    <label for="additionalTags">附加標籤 (可選)</label>
+                    <input type="text" class="form-control" id="additionalTags" name="additionalTags" 
+                           placeholder="用逗號分隔，例如：基礎理論,臨床案例,手法演示">
+                </div>
+                
+                <!-- 文件上傳區域 -->
+                <div class="form-group">
+                    <label for="fileUpload">上傳課程文檔</label>
+                    <div class="upload-zone" id="uploadZone">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                        <p>拖拽文件到此處或點擊選擇文件</p>
+                        <p class="text-muted">支持：.txt, .md, .docx, .pdf (最大 10MB)</p>
+                        <input type="file" id="fileUpload" name="files" multiple 
+                               accept=".txt,.md,.docx,.pdf" style="display: none;">
+                        <button type="button" class="btn btn-outline-primary" id="selectFilesBtn">
+                            <i class="fas fa-file-plus"></i> 選擇文件
+                        </button>
+                    </div>
+                    
+                    <div id="fileList" class="mt-3"></div>
+                </div>
+                
+                <!-- 處理按鈕 -->
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg" id="processButton">
+                        <i class="fas fa-magic"></i> 開始 AI 處理
+                    </button>
+                    <button type="button" class="btn btn-secondary ml-2" id="resetButton">
+                        <i class="fas fa-undo"></i> 重置 AI 結果
+                    </button>
+                    <button type="button" class="btn btn-outline-warning ml-2" id="fullResetButton">
+                        <i class="fas fa-trash-alt"></i> 完全重置
+                    </button>
+                </div>
+            </form>
+            
+            <!-- 處理狀態 -->
+            <div class="processing-status" id="processingStatus">
+                <h5><i class="fas fa-cogs fa-spin"></i> AI 正在處理您的文檔...</h5>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p id="statusText">準備中...</p>
+            </div>
+            
+            <!-- 結果預覽 -->
+            <div class="result-preview" id="resultPreview" style="display: none;">
+                <h4><i class="fas fa-eye"></i> 課程內容預覽</h4>
+                <div id="courseOverview"></div>
+                <div id="segmentsList"></div>
+                
+                <div class="mt-3">
+                    <button type="button" class="btn btn-success btn-lg" id="saveButton">
+                        <i class="fas fa-save"></i> 保存課程
+                    </button>
+                    <button type="button" class="btn btn-outline-primary ml-2" id="editButton">
+                        <i class="fas fa-edit"></i> 編輯調整
+                    </button>
+                    <button type="button" class="btn btn-outline-danger ml-2" id="discardButton">
+                        <i class="fas fa-trash"></i> 放棄結果
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    let uploadedFiles = [];
+    let processedData = null;
+    
+    // 頁面載入時載入儲存的 API 配置
+    loadApiConfig();
+    
+    // API 提供者切換
+    $('#apiProvider').change(function() {
+        const provider = $(this).val();
+        $('.provider-config').hide();
+        if (provider) {
+            $('#' + provider + '-config').show();
+            updateStep(2);
+        }
+        // 自動保存 API 配置
+        saveApiConfig();
+    });
+    
+    // 監聽配置字段變化，自動保存
+    $('#apiProvider, #openaiApiKey, #openaiBaseUrl, #openaiModel, #geminiApiKey, #geminiModel, #ollamaBaseUrl, #ollamaModel').on('change input', function() {
+        saveApiConfig();
+    });
+    
+    // 載入 API 配置
+    function loadApiConfig() {
+        const savedConfig = localStorage.getItem('llmCourseApiConfig');
+        if (savedConfig) {
+            try {
+                const config = JSON.parse(savedConfig);
+                
+                // 恢復 API 提供者選擇
+                if (config.apiProvider) {
+                    $('#apiProvider').val(config.apiProvider);
+                    $('.provider-config').hide();
+                    $('#' + config.apiProvider + '-config').show();
+                }
+                
+                // 恢復各提供者的配置
+                if (config.openaiApiKey) $('#openaiApiKey').val(config.openaiApiKey);
+                if (config.openaiBaseUrl) $('#openaiBaseUrl').val(config.openaiBaseUrl);
+                if (config.openaiModel) $('#openaiModel').val(config.openaiModel);
+                if (config.geminiApiKey) $('#geminiApiKey').val(config.geminiApiKey);
+                if (config.geminiModel) $('#geminiModel').val(config.geminiModel);
+                if (config.ollamaBaseUrl) $('#ollamaBaseUrl').val(config.ollamaBaseUrl);
+                if (config.ollamaModel) $('#ollamaModel').val(config.ollamaModel);
+                
+                showApiStatus('已載入之前保存的 API 配置', 'loaded');
+                console.log('API 配置已恢復');
+            } catch (e) {
+                console.log('無法載入已保存的 API 配置:', e);
+            }
+        }
+    }
+    
+    // 保存 API 配置
+    function saveApiConfig() {
+        const config = {
+            apiProvider: $('#apiProvider').val(),
+            openaiApiKey: $('#openaiApiKey').val(),
+            openaiBaseUrl: $('#openaiBaseUrl').val(),
+            openaiModel: $('#openaiModel').val(),
+            geminiApiKey: $('#geminiApiKey').val(),
+            geminiModel: $('#geminiModel').val(),
+            ollamaBaseUrl: $('#ollamaBaseUrl').val(),
+            ollamaModel: $('#ollamaModel').val()
+        };
+        localStorage.setItem('llmCourseApiConfig', JSON.stringify(config));
+    }
+    
+    // 顯示 API 狀態
+    function showApiStatus(message, type) {
+        const statusEl = $('#apiStatus');
+        statusEl.removeClass('loaded saving warning error')
+               .addClass(type)
+               .html('<i class="fas fa-info-circle"></i> ' + message)
+               .show();
+        
+        // 自動隱藏成功消息
+        if (type === 'loaded') {
+            setTimeout(function() {
+                statusEl.fadeOut();
+            }, 3000);
+        }
+    }
+    
+    // 文件上傳處理
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileUpload');
+    const fileList = document.getElementById('fileList');
+    
+    // 拖拽上傳
+    uploadZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+    });
+    
+    // 點擊選擇文件
+    $('#selectFilesBtn').click(function() {
+        fileInput.click();
+    });
+    
+    fileInput.addEventListener('change', function(e) {
+        handleFiles(e.target.files);
+    });
+    
+    function handleFiles(files) {
+        Array.from(files).forEach(function(file) {
+            if (validateFile(file)) {
+                uploadedFiles.push(file);
+                addFileToList(file);
+            }
+        });
+        
+        if (uploadedFiles.length > 0) {
+            updateStep(3);
+        }
+    }
+    
+    function validateFile(file) {
+        const allowedTypes = ['.txt', '.md', '.docx', '.pdf'];
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        
+        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+        
+        if (!allowedTypes.includes(fileExtension)) {
+            showAlert('不支持的文件類型：' + file.name, 'warning');
+            return false;
+        }
+        
+        if (file.size > maxSize) {
+            showAlert('文件過大：' + file.name + ' (最大 10MB)', 'warning');
+            return false;
+        }
+        
+        return true;
+    }
+    
+    function addFileToList(file) {
+        const fileItem = $('<div class="file-item" data-filename="' + file.name + '">' +
+            '<div class="file-info">' +
+                '<strong>' + file.name + '</strong>' +
+                '<div class="file-size">' + formatFileSize(file.size) + '</div>' +
+            '</div>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeFile(\'' + file.name + '\')">' +
+                '<i class="fas fa-times"></i>' +
+            '</button>' +
+        '</div>');
+        
+        $('#fileList').append(fileItem);
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    window.removeFile = function(filename) {
+        uploadedFiles = uploadedFiles.filter(function(file) {
+            return file.name !== filename;
+        });
+        $('.file-item[data-filename="' + filename + '"]').remove();
+        
+        if (uploadedFiles.length === 0) {
+            updateStep(2);
+        }
+    };
+    
+    // 表單提交處理
+    $('#llmCourseForm').submit(function(e) {
+        e.preventDefault();
+        
+        if (!validateForm()) {
+            return;
+        }
+        
+        startProcessing();
+    });
+    
+    function validateForm() {
+        const apiProvider = $('#apiProvider').val();
+        const courseTitle = $('#courseTitle').val().trim();
+        
+        if (!apiProvider) {
+            showAlert('請選擇 API 提供者', 'warning');
+            return false;
+        }
+        
+        if (!courseTitle) {
+            showAlert('請輸入課程標題', 'warning');
+            return false;
+        }
+        
+        if (uploadedFiles.length === 0) {
+            showAlert('請上傳至少一個文檔', 'warning');
+            return false;
+        }
+        
+        // 驗證 API 配置
+        if (apiProvider === 'openai' && !$('#openaiApiKey').val().trim()) {
+            showAlert('請輸入 OpenAI API Key', 'warning');
+            return false;
+        }
+        
+        if (apiProvider === 'gemini' && !$('#geminiApiKey').val().trim()) {
+            showAlert('請輸入 Gemini API Key', 'warning');
+            return false;
+        }
+        
+        return true;
+    }
+    
+    function startProcessing() {
+        updateStep(4);
+        
+        $('#processingStatus').show();
+        $('#processButton').prop('disabled', true);
+        
+        // 準備表單數據
+        const formData = new FormData();
+        
+        // 添加課程信息
+        formData.append('apiProvider', $('#apiProvider').val());
+        formData.append('courseTitle', $('#courseTitle').val());
+        formData.append('courseDate', $('#courseDate').val());
+        formData.append('courseDomain', $('#courseDomain').val());
+        formData.append('additionalTags', $('#additionalTags').val());
+        
+        // 添加 API 配置
+        const apiProvider = $('#apiProvider').val();
+        if (apiProvider === 'openai') {
+            formData.append('apiKey', $('#openaiApiKey').val());
+            formData.append('baseUrl', $('#openaiBaseUrl').val());
+            formData.append('model', $('#openaiModel').val());
+        } else if (apiProvider === 'gemini') {
+            formData.append('apiKey', $('#geminiApiKey').val());
+            formData.append('model', $('#geminiModel').val());
+        } else if (apiProvider === 'ollama') {
+            formData.append('baseUrl', $('#ollamaBaseUrl').val());
+            formData.append('model', $('#ollamaModel').val());
+        }
+        
+        // 添加文件
+        uploadedFiles.forEach(function(file) {
+            formData.append('files', file);
+        });
+        
+        // 發送請求
+        $.ajax({
+            url: '/api/llm/process-course',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener("progress", function(evt) {
+                    if (evt.lengthComputable) {
+                        const percentComplete = (evt.loaded / evt.total) * 100;
+                        updateProgress(percentComplete, '上傳文件中...');
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function(response) {
+                if (response.success) {
+                    processedData = response.data;
+                    showResults(response.data);
+                    updateStep(5);
+                } else {
+                    showAlert('處理失敗：' + response.error, 'danger');
+                    resetProcessing();
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('處理錯誤:', error);
+                showAlert('處理過程中發生錯誤，請檢查網絡連接和 API 配置', 'danger');
+                resetProcessing();
+            }
+        });
+    }
+    
+    function updateProgress(percent, text) {
+        $('#progressFill').css('width', percent + '%');
+        $('#statusText').text(text);
+    }
+    
+    function showResults(data) {
+        $('#processingStatus').hide();
+        
+        // 顯示課程概述
+        const tagsHtml = data.tags.map(function(tag) {
+            return '<span class="tag-item">' + tag + '</span>';
+        }).join('');
+        
+        $('#courseOverview').html(
+            '<h5>課程概述</h5>' +
+            '<div class="card">' +
+                '<div class="card-body">' +
+                    '<h6 class="card-title">' + data.courseTitle + '</h6>' +
+                    '<p class="card-text">' + data.overview + '</p>' +
+                    '<div class="tags">' + tagsHtml + '</div>' +
+                '</div>' +
+            '</div>'
+        );
+        
+        // 顯示段落列表
+        const segmentsHtml = data.segments.map(function(segment, index) {
+            const segmentTagsHtml = segment.tags.map(function(tag) {
+                return '<span class="tag-item">' + tag + '</span>';
+            }).join('');
+            
+            const contentPreview = segment.content.length > 200 ? 
+                segment.content.substring(0, 200) + '...' : segment.content;
+                
+            return '<div class="segment-preview">' +
+                '<div class="d-flex justify-content-between align-items-start mb-2">' +
+                    '<div>' +
+                        '<span class="segment-type" style="background-color: ' + getTypeColor(segment.type) + ';">' +
+                            segment.type +
+                        '</span>' +
+                        '<strong>' + segment.title + '</strong>' +
+                    '</div>' +
+                    '<small class="text-muted">段落 ' + (index + 1) + '</small>' +
+                '</div>' +
+                '<p>' + contentPreview + '</p>' +
+                '<div class="tags">' + segmentTagsHtml + '</div>' +
+            '</div>';
+        }).join('');
+        
+        $('#segmentsList').html(
+            '<h5>課程段落 (' + data.segments.length + ' 個)</h5>' +
+            segmentsHtml
+        );
+        
+        $('#resultPreview').show();
+    }
+    
+    function getTypeColor(type) {
+        const colors = {
+            '內容': '#6c757d',
+            '診斷': '#dc3545',
+            '治療': '#28a745',
+            '理論': '#ffc107',
+            '案例': '#17a2b8',
+            '其他': '#6f42c1'
+        };
+        return colors[type] || '#6c757d';
+    }
+    
+    // 更新步驟指示器
+    function updateStep(stepNumber) {
+        $('.step').removeClass('active completed');
+        for (let i = 1; i < stepNumber; i++) {
+            $('#step-' + i).addClass('completed');
+        }
+        $('#step-' + stepNumber).addClass('active');
+    }
+    
+    // 顯示警告消息
+    function showAlert(message, type) {
+        // 移除現有的警告
+        $('.alert').remove();
+        
+        const alertClass = type === 'warning' ? 'alert-warning' : 
+                          type === 'danger' ? 'alert-danger' : 
+                          type === 'success' ? 'alert-success' : 'alert-info';
+        
+        const alertHtml = '<div class="alert ' + alertClass + ' alert-dismissible fade show" role="alert">' +
+            '<i class="fas fa-exclamation-triangle"></i> ' + message +
+            '<button type="button" class="close" data-dismiss="alert" aria-label="Close">' +
+                '<span aria-hidden="true">&times;</span>' +
+            '</button>' +
+        '</div>';
+        
+        $('h2').after(alertHtml);
+    }
+    
+    // 重置處理狀態
+    function resetProcessing() {
+        $('#processingStatus').hide();
+        $('#processButton').prop('disabled', false);
+        updateStep(3);
+    }
+    
+    // 重置 AI 結果（保留API配置、課程信息、上傳文件）
+    $('#resetButton').click(function() {
+        if (confirm('確定要重置 AI 處理結果嗎？這將清除所有 AI 生成的內容，但保留您的 API 配置、課程信息和上傳的文件。')) {
+            // 清除AI結果
+            processedData = null;
+            $('#resultPreview').hide();
+            $('#processingStatus').hide();
+            
+            // 重置按鈕狀態
+            $('#processButton').prop('disabled', false);
+            
+            // 重置步驟指示器到第3步（上傳文檔）
+            if (uploadedFiles.length > 0) {
+                updateStep(3);
+            } else {
+                updateStep(2);
+            }
+            
+            showAlert('AI 結果已重置，您可以重新處理', 'success');
+        }
+    });
+    
+    // 完全重置（清除所有內容）
+    $('#fullResetButton').click(function() {
+        if (confirm('確定要完全重置嗎？這將清除所有內容，包括 API 配置、課程信息、上傳的文件和 AI 結果。')) {
+            // 清除所有數據
+            processedData = null;
+            uploadedFiles = [];
+            
+            // 清除表單
+            $('#llmCourseForm')[0].reset();
+            $('#apiProvider').val('');
+            $('.provider-config').hide();
+            
+            // 清除文件列表
+            $('#fileList').empty();
+            
+            // 清除結果預覽
+            $('#resultPreview').hide();
+            $('#processingStatus').hide();
+            
+            // 重置按鈕狀態
+            $('#processButton').prop('disabled', false);
+            
+            // 清除 API 配置狀態
+            $('#apiStatus').hide();
+            
+            // 重置步驟指示器
+            updateStep(1);
+            
+            showAlert('所有內容已清除，請重新開始配置', 'success');
+        }
+    });
+    
+    // Ollama 連接測試
+    $('#testOllamaConnection').click(function() {
+        const baseUrl = $('#ollamaBaseUrl').val();
+        const model = $('#ollamaModel').val();
+        
+        if (!baseUrl || !model) {
+            showAlert('請先輸入 Ollama 服務地址和模型名稱', 'warning');
+            return;
+        }
+        
+        const button = $(this);
+        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 測試中...');
+        
+        $.ajax({
+            url: '/api/llm/test-ollama',
+            type: 'POST',
+            data: {
+                baseUrl: baseUrl,
+                model: model
+            },
+            success: function(response) {
+                if (response.success) {
+                    showApiStatus('Ollama 連接測試成功', 'loaded');
+                } else {
+                    showApiStatus('Ollama 連接失敗：' + response.error, 'error');
+                }
+            },
+            error: function() {
+                showApiStatus('Ollama 連接測試失敗，請檢查服務是否運行', 'error');
+            },
+            complete: function() {
+                button.prop('disabled', false).html('<i class="fas fa-plug"></i> 測試連接');
+            }
+        });
+    });
+    
+    // 保存課程
+    $('#saveButton').click(function() {
+        if (!processedData) {
+            showAlert('沒有可保存的課程數據', 'warning');
+            return;
+        }
+        
+        const button = $(this);
+        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 保存中...');
+        
+        $.ajax({
+            url: '/api/llm/save-course',
+            type: 'POST',
+            data: JSON.stringify(processedData),
+            contentType: 'application/json',
+            success: function(response) {
+                if (response.success) {
+                    showAlert('課程保存成功！', 'success');
+                    // 可以跳轉到課程詳情頁面
+                    setTimeout(function() {
+                        window.location.href = '/session/' + response.sessionId;
+                    }, 2000);
+                } else {
+                    showAlert('保存失敗：' + response.error, 'danger');
+                }
+            },
+            error: function() {
+                showAlert('保存過程中發生錯誤', 'danger');
+            },
+            complete: function() {
+                button.prop('disabled', false).html('<i class="fas fa-save"></i> 保存課程');
+            }
+        });
+    });
+    
+    // 編輯調整
+    $('#editButton').click(function() {
+        // 可以跳轉到編輯頁面或顯示編輯模式
+        showAlert('編輯功能開發中...', 'info');
+    });
+    
+    // 放棄結果
+    $('#discardButton').click(function() {
+        if (confirm('確定要放棄當前的 AI 處理結果嗎？')) {
+            $('#resetButton').click(); // 觸發重置 AI 結果
+        }
+    });
+});
+</script>
+{% endblock %}

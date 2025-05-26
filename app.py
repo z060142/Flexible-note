@@ -6,6 +6,10 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import json
 from sqlalchemy import func, and_, or_, text
+from dotenv import load_dotenv
+
+# 載入環境變數
+load_dotenv()
 
 # 添加這個重要的導入
 from models import db, Session, Segment, Tag, Attachment, QueryRelation, session_tags, segment_tags
@@ -2070,6 +2074,249 @@ def not_found_error(error):
 def internal_error(error):
     db.session.rollback()
     return render_template('500.html'), 500
+
+# LLM 課程錄入功能
+@app.route('/llm-course-create')
+def llm_course_create():
+    """LLM 課程錄入頁面"""
+    return render_template('llm_course_create.html', datetime=datetime)
+
+@app.route('/api/llm/test-ollama', methods=['POST'])
+def test_ollama_connection():
+    """測試 Ollama 連接"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('baseUrl'):
+            return jsonify({'success': False, 'error': '請提供 Ollama 服務地址'}), 400
+        
+        from llm_service import LLMCourseService
+        result = LLMCourseService.test_ollama_connection(data['baseUrl'])
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/llm/process-course', methods=['POST'])
+def process_course_with_llm():
+    """使用 LLM 處理課程文檔"""
+    try:
+        # 檢查是否有文件上傳
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': '沒有上傳文件'}), 400
+        
+        files = request.files.getlist('files')
+        if not files or not any(f.filename for f in files):
+            return jsonify({'success': False, 'error': '沒有選擇有效文件'}), 400
+        
+        # 獲取表單數據
+        form_data = {
+            'apiProvider': request.form.get('apiProvider'),
+            'courseTitle': request.form.get('courseTitle'),
+            'courseDate': request.form.get('courseDate'),
+            'courseDomain': request.form.get('courseDomain'),
+            'additionalTags': request.form.get('additionalTags'),
+            'apiKey': request.form.get('apiKey'),
+            'baseUrl': request.form.get('baseUrl'),
+            'model': request.form.get('model')
+        }
+        
+        # 驗證必要參數
+        if not form_data['apiProvider']:
+            return jsonify({'success': False, 'error': '請選擇 API 提供者'}), 400
+        
+        if not form_data['courseTitle']:
+            return jsonify({'success': False, 'error': '請輸入課程標題'}), 400
+        
+        # 根據 API 提供者驗證配置
+        if form_data['apiProvider'] in ['openai', 'gemini'] and not form_data['apiKey']:
+            return jsonify({'success': False, 'error': 'API Key 不能為空'}), 400
+        
+        # 處理文檔
+        from llm_service import LLMCourseService
+        processed_course = LLMCourseService.process_course_files(files, form_data)
+        
+        # 轉換為字典格式返回
+        result_data = {
+            'courseTitle': processed_course.courseTitle,
+            'overview': processed_course.overview,
+            'tags': processed_course.tags,
+            'segments': [
+                {
+                    'type': segment.type,
+                    'title': segment.title,
+                    'content': segment.content,
+                    'tags': segment.tags
+                }
+                for segment in processed_course.segments
+            ],
+            # 保存原始課程信息用於後續保存
+            '_courseInfo': form_data
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': result_data
+        })
+        
+    except Exception as e:
+        logger.error(f"LLM 課程處理失敗: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/llm/save-course', methods=['POST'])
+def save_llm_course():
+    """保存 LLM 處理後的課程"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': '沒有課程數據'}), 400
+        
+        # 提取課程信息
+        course_info = data.get('_courseInfo', {})
+        
+        # 保存課程
+        from llm_service import LLMCourseService
+        session_id = LLMCourseService.save_processed_course(data, course_info)
+        
+        # 自動同步到向量數據庫（如果啟用）
+        if VECTOR_SEARCH_ENABLED:
+            try:
+                chroma_manager = get_chroma_manager()
+                session = Session.query.get(session_id)
+                if session:
+                    chroma_manager.add_session(session)
+            except Exception as e:
+                logger.warning(f"向量數據庫同步失敗: {e}")
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': '課程保存成功'
+        })
+        
+    except Exception as e:
+        logger.error(f"保存 LLM 課程失敗: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# LLM API 配置管理
+@app.route('/api/llm/config', methods=['GET'])
+def get_llm_config():
+    """獲取 LLM API 配置"""
+    try:
+        config = {
+            'openai': {
+                'apiKey': os.getenv('OPENAI_API_KEY', ''),
+                'baseUrl': os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+                'model': os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+            },
+            'gemini': {
+                'apiKey': os.getenv('GEMINI_API_KEY', ''),
+                'model': os.getenv('GEMINI_MODEL', 'gemini-pro')
+            },
+            'ollama': {
+                'baseUrl': os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434'),
+                'model': os.getenv('OLLAMA_MODEL', 'llama2')
+            },
+            'defaultProvider': os.getenv('DEFAULT_API_PROVIDER', 'openai')
+        }
+        
+        return jsonify({
+            'success': True,
+            'config': config
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/llm/config', methods=['POST'])
+def update_llm_config():
+    """更新 LLM API 配置到 .env 檔案"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': '沒有配置數據'}), 400
+        
+        config = data.get('config', {})
+        
+        # 讀取現有的 .env 檔案
+        env_path = '.env'
+        env_lines = []
+        
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                env_lines = f.readlines()
+        
+        # 準備要更新的變數
+        updates = {}
+        
+        if 'openai' in config:
+            openai_config = config['openai']
+            if 'apiKey' in openai_config:
+                updates['OPENAI_API_KEY'] = openai_config['apiKey']
+            if 'baseUrl' in openai_config:
+                updates['OPENAI_BASE_URL'] = openai_config['baseUrl']
+            if 'model' in openai_config:
+                updates['OPENAI_MODEL'] = openai_config['model']
+        
+        if 'gemini' in config:
+            gemini_config = config['gemini']
+            if 'apiKey' in gemini_config:
+                updates['GEMINI_API_KEY'] = gemini_config['apiKey']
+            if 'model' in gemini_config:
+                updates['GEMINI_MODEL'] = gemini_config['model']
+        
+        if 'ollama' in config:
+            ollama_config = config['ollama']
+            if 'baseUrl' in ollama_config:
+                updates['OLLAMA_BASE_URL'] = ollama_config['baseUrl']
+            if 'model' in ollama_config:
+                updates['OLLAMA_MODEL'] = ollama_config['model']
+        
+        if 'defaultProvider' in config:
+            updates['DEFAULT_API_PROVIDER'] = config['defaultProvider']
+        
+        # 更新環境變數行
+        updated_lines = []
+        updated_keys = set()
+        
+        for line in env_lines:
+            line = line.rstrip('\n\r')
+            if '=' in line and not line.strip().startswith('#'):
+                key = line.split('=')[0].strip()
+                if key in updates:
+                    updated_lines.append(f'{key}={updates[key]}\n')
+                    updated_keys.add(key)
+                else:
+                    updated_lines.append(line + '\n')
+            else:
+                updated_lines.append(line + '\n')
+        
+        # 添加新的環境變數
+        for key, value in updates.items():
+            if key not in updated_keys:
+                updated_lines.append(f'{key}={value}\n')
+        
+        # 寫回 .env 檔案
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(updated_lines)
+        
+        # 重新載入環境變數
+        load_dotenv(override=True)
+        
+        return jsonify({
+            'success': True,
+            'message': 'API 配置已保存到 .env 檔案'
+        })
+        
+    except Exception as e:
+        logger.error(f"更新 LLM 配置失敗: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 測試上傳頁面 (僅在開發模式下)
 @app.route('/test-upload')

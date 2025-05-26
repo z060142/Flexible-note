@@ -138,10 +138,24 @@
                                      class="img-thumbnail attachment-preview" 
                                      onclick="viewAttachmentModal('{{ url_for('serve_upload', filename=attachment.filename) }}', '{{ attachment.original_filename }}')">
                                 {% elif attachment.file_type == 'video' %}
-                                <div class="text-center p-3 border rounded">
-                                    <i class="fas fa-video fa-3x"></i>
-                                    <p>{{ attachment.original_filename }}</p>
-                                    <a href="{{ url_for('serve_upload', filename=attachment.filename) }}" target="_blank" class="btn btn-sm btn-outline-primary">播放</a>
+                                <div class="video-container border rounded p-2">
+                                    <video class="w-100" controls preload="metadata" style="max-height: 300px;">
+                                        <source src="{{ url_for('serve_upload', filename=attachment.filename) }}" type="video/mp4">
+                                        <source src="{{ url_for('serve_upload', filename=attachment.filename) }}" type="video/webm">
+                                        <source src="{{ url_for('serve_upload', filename=attachment.filename) }}" type="video/ogg">
+                                        您的瀏覽器不支援影片播放。
+                                        <a href="{{ url_for('serve_upload', filename=attachment.filename) }}" target="_blank">點擊此處下載影片</a>
+                                    </video>
+                                    <div class="mt-2 text-center">
+                                        <small class="text-muted">{{ attachment.original_filename }}</small>
+                                        <br>
+                                        <button class="btn btn-sm btn-outline-secondary mt-1" onclick="downloadVideo('{{ url_for('serve_upload', filename=attachment.filename) }}', '{{ attachment.original_filename }}')">
+                                            <i class="fas fa-download"></i> 下載
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary mt-1" onclick="fullscreenVideo(this)">
+                                            <i class="fas fa-expand"></i> 全螢幕
+                                        </button>
+                                    </div>
                                 </div>
                                 {% else %}
                                 <div class="text-center p-3 border rounded">
@@ -643,6 +657,33 @@ function searchByTag(tagName) {
 // 顯示關聯
 function showRelations() {
     alert('關聯視圖功能開發中...');
+}
+
+// 下載影片函數
+function downloadVideo(videoUrl, filename) {
+    const a = document.createElement('a');
+    a.href = videoUrl;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+// 全螢幕播放影片
+function fullscreenVideo(button) {
+    const videoContainer = button.closest('.video-container');
+    const video = videoContainer.querySelector('video');
+    
+    if (video.requestFullscreen) {
+        video.requestFullscreen();
+    } else if (video.webkitRequestFullscreen) {
+        video.webkitRequestFullscreen();
+    } else if (video.mozRequestFullScreen) {
+        video.mozRequestFullScreen();
+    } else if (video.msRequestFullscreen) {
+        video.msRequestFullscreen();
+    }
 }
 
 // 查看附件模態框
