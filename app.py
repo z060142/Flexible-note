@@ -6,6 +6,10 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import json
 from sqlalchemy import func, and_, or_, text
+from dotenv import load_dotenv
+
+# 載入環境變數
+load_dotenv()
 
 # 添加這個重要的導入
 from models import db, Session, Segment, Tag, Attachment, QueryRelation, session_tags, segment_tags
@@ -2199,6 +2203,120 @@ def save_llm_course():
             'success': False,
             'error': str(e)
         }), 500
+
+# LLM API 配置管理
+@app.route('/api/llm/config', methods=['GET'])
+def get_llm_config():
+    """獲取 LLM API 配置"""
+    try:
+        config = {
+            'openai': {
+                'apiKey': os.getenv('OPENAI_API_KEY', ''),
+                'baseUrl': os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+                'model': os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+            },
+            'gemini': {
+                'apiKey': os.getenv('GEMINI_API_KEY', ''),
+                'model': os.getenv('GEMINI_MODEL', 'gemini-pro')
+            },
+            'ollama': {
+                'baseUrl': os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434'),
+                'model': os.getenv('OLLAMA_MODEL', 'llama2')
+            },
+            'defaultProvider': os.getenv('DEFAULT_API_PROVIDER', 'openai')
+        }
+        
+        return jsonify({
+            'success': True,
+            'config': config
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/llm/config', methods=['POST'])
+def update_llm_config():
+    """更新 LLM API 配置到 .env 檔案"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': '沒有配置數據'}), 400
+        
+        config = data.get('config', {})
+        
+        # 讀取現有的 .env 檔案
+        env_path = '.env'
+        env_lines = []
+        
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                env_lines = f.readlines()
+        
+        # 準備要更新的變數
+        updates = {}
+        
+        if 'openai' in config:
+            openai_config = config['openai']
+            if 'apiKey' in openai_config:
+                updates['OPENAI_API_KEY'] = openai_config['apiKey']
+            if 'baseUrl' in openai_config:
+                updates['OPENAI_BASE_URL'] = openai_config['baseUrl']
+            if 'model' in openai_config:
+                updates['OPENAI_MODEL'] = openai_config['model']
+        
+        if 'gemini' in config:
+            gemini_config = config['gemini']
+            if 'apiKey' in gemini_config:
+                updates['GEMINI_API_KEY'] = gemini_config['apiKey']
+            if 'model' in gemini_config:
+                updates['GEMINI_MODEL'] = gemini_config['model']
+        
+        if 'ollama' in config:
+            ollama_config = config['ollama']
+            if 'baseUrl' in ollama_config:
+                updates['OLLAMA_BASE_URL'] = ollama_config['baseUrl']
+            if 'model' in ollama_config:
+                updates['OLLAMA_MODEL'] = ollama_config['model']
+        
+        if 'defaultProvider' in config:
+            updates['DEFAULT_API_PROVIDER'] = config['defaultProvider']
+        
+        # 更新環境變數行
+        updated_lines = []
+        updated_keys = set()
+        
+        for line in env_lines:
+            line = line.rstrip('\n\r')
+            if '=' in line and not line.strip().startswith('#'):
+                key = line.split('=')[0].strip()
+                if key in updates:
+                    updated_lines.append(f'{key}={updates[key]}\n')
+                    updated_keys.add(key)
+                else:
+                    updated_lines.append(line + '\n')
+            else:
+                updated_lines.append(line + '\n')
+        
+        # 添加新的環境變數
+        for key, value in updates.items():
+            if key not in updated_keys:
+                updated_lines.append(f'{key}={value}\n')
+        
+        # 寫回 .env 檔案
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(updated_lines)
+        
+        # 重新載入環境變數
+        load_dotenv(override=True)
+        
+        return jsonify({
+            'success': True,
+            'message': 'API 配置已保存到 .env 檔案'
+        })
+        
+    except Exception as e:
+        logger.error(f"更新 LLM 配置失敗: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 測試上傳頁面 (僅在開發模式下)
 @app.route('/test-upload')
