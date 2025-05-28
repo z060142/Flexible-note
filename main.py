@@ -11,7 +11,8 @@ import socket
 import webbrowser
 from contextlib import closing
 import webview
-from app import app, db
+# Updated import: create_app is the factory, db is the SQLAlchemy instance
+from app import create_app, db 
 
 
 def find_free_port():
@@ -35,6 +36,9 @@ def is_port_available(port):
 
 def ensure_upload_folder():
     """確保上傳資料夾存在"""
+    # app will be available globally in this script after main() instantiates it.
+    # However, it's better practice to pass app if this function could be called before main().
+    # For this specific script structure, direct access after main() sets it is okay.
     upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
     if not os.path.exists(upload_folder):
         os.makedirs(upload_folder, exist_ok=True)
@@ -149,6 +153,9 @@ def create_webview_window(port):
 
 def main():
     """主函數"""
+    global app # Declare app as global so functions outside main can see the instance created here
+    app = create_app() # Instantiate the app using the factory
+
     print("正在啟動知識管理系統...")
     
     # 尋找可用端口
